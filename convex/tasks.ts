@@ -18,6 +18,28 @@ export const toggleCompleted = mutation({
   },
 });
 
+export const toggleAll = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const tasks = await ctx.db.query("tasks").collect();
+    for (const task of tasks) {
+      await ctx.db.patch(task._id, { isCompleted: !task.isCompleted });
+    }
+    return true;
+  },
+});
+
+export const setAllCompleted = mutation({
+  args: { value: v.boolean() },
+  handler: async (ctx, args) => {
+    const tasks = await ctx.db.query("tasks").collect();
+    for (const task of tasks) {
+      await ctx.db.patch(task._id, { isCompleted: args.value });
+    }
+    return true;
+  },
+});
+
 export const completedCount = query({
   args: {},
   handler: async (ctx) => {
