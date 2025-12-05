@@ -7,6 +7,17 @@ import { useEffect, useState } from "react";
 
 const PAGE_SIZE = 9;
 
+function formatDate(timestamp: number | undefined): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  const day = date.getDate().toString().padStart(2, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  return `${day}.${month}.${year} ${hours}:${minutes}`;
+}
+
 function App() {
   const [page, setPage] = useState(0);
   const tasks = useQuery(api.tasks.get, { page, pageSize: PAGE_SIZE });
@@ -102,6 +113,11 @@ function App() {
                     <div className="text-base font-medium text-white/80">
                       Status: {task.isCompleted ? "Completed" : "Incomplete"}
                     </div>
+                    {task.updatedAt && (
+                      <div className="text-xs text-white/60 mt-2">
+                        Updated: {formatDate(task.updatedAt)}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ) : (

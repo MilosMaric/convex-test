@@ -16,7 +16,7 @@ export const toggleCompleted = mutation({
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.id);
     if (!task) throw new Error("Task not found");
-    await ctx.db.patch(args.id, { isCompleted: !task.isCompleted });
+    await ctx.db.patch(args.id, { isCompleted: !task.isCompleted, updatedAt: Date.now() });
     return await ctx.db.get(args.id);
   },
 });
@@ -24,9 +24,10 @@ export const toggleCompleted = mutation({
 export const toggleAll = mutation({
   args: { ids: v.array(v.id("tasks")) },
   handler: async (ctx, args) => {
+    const now = Date.now();
     for (const id of args.ids) {
       const task = await ctx.db.get(id);
-      if (task) await ctx.db.patch(id, { isCompleted: !task.isCompleted });
+      if (task) await ctx.db.patch(id, { isCompleted: !task.isCompleted, updatedAt: now });
     }
     return true;
   },
@@ -35,9 +36,10 @@ export const toggleAll = mutation({
 export const setAllCompleted = mutation({
   args: { ids: v.array(v.id("tasks")), value: v.boolean() },
   handler: async (ctx, args) => {
+    const now = Date.now();
     for (const id of args.ids) {
       const task = await ctx.db.get(id);
-      if (task) await ctx.db.patch(id, { isCompleted: args.value });
+      if (task) await ctx.db.patch(id, { isCompleted: args.value, updatedAt: now });
     }
     return true;
   },
@@ -66,5 +68,24 @@ export const totalCount = query({
   handler: async (ctx) => {
     const allTasks = await ctx.db.query("tasks").collect();
     return allTasks.length;
+  },
+});
+
+export const backfillTimestamps = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const allTasks = await ctx.db.query("tasks").collect();
+    const now = Date.now();
+    let count = 0;
+    for (const task of allTasks) {
+      if (!task.createdAt || !task.updatedAt) {
+        await ctx.db.patch(task._id, {
+          createdAt: task.createdAt ?? now,
+          updatedAt: task.updatedAt ?? now,
+        });
+        count++;
+      }
+    }
+    return { updated: count };
   },
 });
