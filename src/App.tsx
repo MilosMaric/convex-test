@@ -901,10 +901,12 @@ function App() {
               <SheetHeader className="pr-8">
                 <SheetTitle className="text-white text-xl">{selectedTask.text}</SheetTitle>
                 <SheetDescription className="text-neutral-400 flex items-center gap-3">
-                  <span>{selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}</span>
-                  {selectedTask.isImportant && (
-                    <span className="text-amber-400">★ Important</span>
-                  )}
+                  <span className={selectedTask.isCompleted ? "text-green-500" : "text-neutral-400"}>
+                    {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
+                  </span>
+                  <span className={selectedTask.isImportant ? "text-amber-400" : "text-neutral-400"}>
+                    {selectedTask.isImportant ? "★ Important" : "☆ Not Important"}
+                  </span>
                 </SheetDescription>
               </SheetHeader>
               
@@ -957,28 +959,72 @@ function App() {
                 </div>
               </div>
 
-              <div className="pt-4 pb-2 flex-shrink-0 space-y-2">
+              <div className="pt-4 pb-2 flex-shrink-0 flex gap-2">
                 <Button
-                  onClick={() => {
-                    toggleImportant({ id: selectedTask._id as any });
+                  onClick={async () => {
+                    setTogglingImportance(prev => new Set(prev).add(selectedTask._id));
+                    try {
+                      await toggleImportant({ id: selectedTask._id as any });
+                    } finally {
+                      setTogglingImportance(prev => {
+                        const next = new Set(prev);
+                        next.delete(selectedTask._id);
+                        return next;
+                      });
+                    }
                   }}
-                  className={`w-full ${selectedTask.isImportant 
-                    ? "bg-amber-500 hover:bg-amber-600" 
-                    : "bg-neutral-700 hover:bg-neutral-600"
+                  disabled={togglingTasks.has(selectedTask._id) || togglingImportance.has(selectedTask._id)}
+                  className={`flex-1 py-6 text-base font-medium flex items-center justify-center gap-2 ${
+                    togglingImportance.has(selectedTask._id) 
+                      ? "opacity-70 cursor-not-allowed"
+                      : ""
+                  } ${selectedTask.isImportant 
+                    ? "bg-neutral-700 hover:bg-neutral-600" 
+                    : "bg-amber-500 hover:bg-amber-600"
                   }`}
                 >
-                  {selectedTask.isImportant ? "★ Remove Importance" : "☆ Mark as Important"}
+                  {togglingImportance.has(selectedTask._id) ? (
+                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <span>{selectedTask.isImportant ? "☆" : "★"}</span>
+                  )}
+                  <span>{selectedTask.isImportant ? "Remove Importance" : "Mark as Important"}</span>
                 </Button>
                 <Button
-                  onClick={() => {
-                    toggleCompleted({ id: selectedTask._id as any });
+                  onClick={async () => {
+                    setTogglingTasks(prev => new Set(prev).add(selectedTask._id));
+                    try {
+                      await toggleCompleted({ id: selectedTask._id as any });
+                    } finally {
+                      setTogglingTasks(prev => {
+                        const next = new Set(prev);
+                        next.delete(selectedTask._id);
+                        return next;
+                      });
+                    }
                   }}
-                  className={`w-full ${selectedTask.isCompleted 
+                  disabled={togglingTasks.has(selectedTask._id) || togglingImportance.has(selectedTask._id)}
+                  className={`flex-1 py-6 text-base font-medium flex items-center justify-center gap-2 ${
+                    togglingTasks.has(selectedTask._id) 
+                      ? "opacity-70 cursor-not-allowed"
+                      : ""
+                  } ${selectedTask.isCompleted 
                     ? "bg-neutral-700 hover:bg-neutral-600" 
                     : "bg-green-600 hover:bg-green-700"
                   }`}
                 >
-                  {selectedTask.isCompleted ? "Mark as Incomplete" : "Mark as Complete"}
+                  {togglingTasks.has(selectedTask._id) ? (
+                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <span>{selectedTask.isCompleted ? "○" : "✓"}</span>
+                  )}
+                  <span>{selectedTask.isCompleted ? "Mark as Incomplete" : "Mark as Complete"}</span>
                 </Button>
               </div>
             </>
