@@ -431,7 +431,7 @@ function App() {
       <div className="w-[90%] max-w-[2000px] mx-auto">
         {/* Fixed Header with Filters */}
         <div className="sticky top-0 z-10 bg-neutral-900/95 backdrop-blur-sm border-b border-neutral-800 px-6 py-6">
-          <h1 className="text-3xl font-bold text-white mb-4">Tasks</h1>
+          <h1 className="text-3xl font-bold text-white mb-4">Tasks Manager</h1>
           <div className="flex flex-wrap items-center gap-3">
             {/* Status filter buttons */}
             <div className="flex gap-2">

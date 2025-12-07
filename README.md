@@ -111,6 +111,7 @@ A full-stack task management application with web and mobile clients, built with
    ```bash
    npm run dev
    ```
+   The web app will be available at `http://localhost:5555`
 
 5. **Run the mobile app**
    ```bash
