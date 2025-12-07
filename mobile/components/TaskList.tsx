@@ -6,8 +6,9 @@ import { Id } from 'convex/_generated/dataModel';
 
 import { Text, View } from '@/components/Themed';
 
-type FilterType = 'all' | 'completed' | 'incomplete';
+type FilterType = 'all' | 'completed' | 'incomplete' | 'important';
 export type SortType = 'latest' | 'inactive' | 'newest' | 'oldest' | 'frequent' | 'unfrequent' | 'quickest' | 'longest';
+export type DurationFilterType = 'all' | 'quick' | 'long';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PAGE_SIZE = 9;
@@ -450,9 +451,11 @@ interface TaskListProps {
   filter: FilterType;
   sort: SortType;
   onSortChange: (sort: SortType) => void;
+  durationFilter?: DurationFilterType;
+  onDurationFilterChange?: (filter: DurationFilterType) => void;
 }
 
-export default function TaskList({ filter, sort, onSortChange }: TaskListProps) {
+export default function TaskList({ filter, sort, onSortChange, durationFilter = 'all', onDurationFilterChange }: TaskListProps) {
   const allTasks = useQuery(api.tasks.listAllWithHistoryCount) ?? [];
   const toggleCompleted = useMutation(api.tasks.toggleCompleted);
   const toggleImportant = useMutation(api.tasks.toggleImportant);
@@ -516,9 +519,25 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
   // Sort and filter tasks
   const sortedAndFilteredTasks = useMemo(() => {
     let filtered = allTasks.filter(task => {
-      if (filter === 'all') return true;
-      if (filter === 'completed') return task.isCompleted;
-      if (filter === 'incomplete') return !task.isCompleted;
+      // Status filter
+      if (filter === 'all') {
+        // All tasks - no status filter
+      } else if (filter === 'completed') {
+        if (!task.isCompleted) return false;
+      } else if (filter === 'incomplete') {
+        if (task.isCompleted) return false;
+      } else if (filter === 'important') {
+        if (!task.isImportant) return false;
+      }
+      
+      // Duration filter
+      if (durationFilter === 'quick') {
+        if ((task.duration ?? 0) > 15) return false;
+      } else if (durationFilter === 'long') {
+        if ((task.duration ?? 0) <= 15) return false;
+      }
+      // 'all' duration filter - no filtering
+      
       return true;
     });
     
@@ -544,7 +563,7 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
           return 0;
       }
     });
-  }, [allTasks, filter, sort]);
+  }, [allTasks, filter, sort, durationFilter]);
 
   const visibleTasks = sortedAndFilteredTasks.slice(0, visibleCount);
   const hasMore = visibleCount < sortedAndFilteredTasks.length;
@@ -560,11 +579,35 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
       case 'all': return 'All Tasks';
       case 'completed': return 'Completed';
       case 'incomplete': return 'Incomplete';
+      case 'important': return 'Important';
     }
   };
 
   const currentSortLabel = sortOptions.find(o => o.value === sort)?.label ?? 'Sort';
   const isLoading = allTasks.length === 0 && !allTasks;
+  
+  const cycleDurationFilter = useCallback(() => {
+    if (!onDurationFilterChange) return;
+    const nextFilter: DurationFilterType = durationFilter === 'all' ? 'quick' : durationFilter === 'quick' ? 'long' : 'all';
+    onDurationFilterChange(nextFilter);
+    setVisibleCount(PAGE_SIZE);
+  }, [durationFilter, onDurationFilterChange]);
+  
+  const getDurationFilterIcon = () => {
+    switch (durationFilter) {
+      case 'all': return '⊙';
+      case 'quick': return '⚡';
+      case 'long': return '🕐';
+    }
+  };
+  
+  const getDurationFilterLabel = () => {
+    switch (durationFilter) {
+      case 'all': return 'All';
+      case 'quick': return 'Quick';
+      case 'long': return 'Long';
+    }
+  };
 
   if (isLoading) {
     return (
@@ -579,14 +622,26 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
     <View style={styles.container}>
       <Text style={styles.title}>{getTitle()}</Text>
       
-      <Pressable 
-        style={styles.sortButton}
-        onPress={() => setShowSortPicker(true)}
-      >
-        <RNText style={styles.sortButtonLabel}>Sort: </RNText>
-        <RNText style={styles.sortButtonValue}>{currentSortLabel}</RNText>
-        <RNText style={styles.sortButtonChevron}>▼</RNText>
-      </Pressable>
+      <RNView style={styles.filtersRow}>
+        <Pressable 
+          style={styles.sortButton}
+          onPress={() => setShowSortPicker(true)}
+        >
+          <RNText style={styles.sortButtonLabel}>Sort: </RNText>
+          <RNText style={styles.sortButtonValue}>{currentSortLabel}</RNText>
+          <RNText style={styles.sortButtonChevron}>▼</RNText>
+        </Pressable>
+        
+        {onDurationFilterChange && (
+          <Pressable 
+            style={styles.durationButton}
+            onPress={cycleDurationFilter}
+          >
+            <RNText style={styles.durationButtonIcon}>{getDurationFilterIcon()}</RNText>
+            <RNText style={styles.durationButtonLabel}>{getDurationFilterLabel()}</RNText>
+          </Pressable>
+        )}
+      </RNView>
       
       <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
       
@@ -771,6 +826,13 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
   },
+  filtersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+    paddingHorizontal: 16,
+  },
   sortButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -778,7 +840,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    marginTop: 12,
+    flex: 1,
   },
   sortButtonLabel: {
     color: '#888',
@@ -793,6 +855,24 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 10,
     marginLeft: 8,
+  },
+  durationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#333',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  durationButtonIcon: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  durationButtonLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
   },
   separator: {
     marginVertical: 16,
