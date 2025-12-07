@@ -840,7 +840,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    flex: 1,
   },
   sortButtonLabel: {
     color: '#888',
