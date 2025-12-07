@@ -2,6 +2,10 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  users: defineTable({
+    name: v.string(),
+    image: v.optional(v.string()), // Base64-encoded image
+  }),
   tasks: defineTable({
     text: v.string(),
     description: v.optional(v.string()),
@@ -10,7 +14,8 @@ export default defineSchema({
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
     duration: v.optional(v.number()), // Duration in minutes
-  }),
+    userId: v.optional(v.id("users")), // Optional for backward compatibility
+  }).index("by_user", ["userId"]),
   taskHistory: defineTable({
     taskId: v.id("tasks"),
     changeType: v.optional(v.string()), // "completion" or "importance"

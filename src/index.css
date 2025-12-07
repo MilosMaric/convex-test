@@ -3,6 +3,38 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Custom slide-in animations for drawer */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-to-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Apply animations to sheet when using data attributes */
+[data-state="open"][data-side="right"] {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+[data-state="closed"][data-side="right"] {
+  animation: slide-out-to-right 0.3s ease-in;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

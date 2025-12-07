@@ -28,6 +28,7 @@ type Task = {
   updatedAt?: number;
   duration?: number;
   historyCount: number;
+  userId?: string;
 };
 
 // Removed FilterType - now using showCompleted and showIncomplete booleans
@@ -227,6 +228,8 @@ function getInitialParams() {
   const importanceFilter = params.get('importance') as ImportanceFilterType | null;
   const sort = params.get('sort') as SortType | null;
   const view = params.get('view') as ViewMode | null;
+  const usersParam = params.get('users');
+  const selectedUsers = usersParam ? usersParam.split(',').filter(Boolean) : [];
   
   return {
     showCompleted: showCompleted === null ? true : showCompleted === 'true',
@@ -235,6 +238,7 @@ function getInitialParams() {
     importanceFilter: importanceFilter && ['all', 'important', 'not-important'].includes(importanceFilter) ? importanceFilter : 'all',
     sort: sort && ['latest', 'inactive', 'newest', 'oldest', 'frequent', 'unfrequent', 'quickest', 'longest'].includes(sort) ? sort : 'latest',
     viewMode: view && ['compact', 'extended', 'list'].includes(view) ? view : 'compact',
+    selectedUsers: new Set(selectedUsers),
   };
 }
 
@@ -254,6 +258,10 @@ function App() {
   const [historyShowImportant, setHistoryShowImportant] = useState(false);
   const [historyShowNotImportant, setHistoryShowNotImportant] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(initialParams.selectedUsers);
+  
+  // Fetch all users
+  const users = useQuery(api.tasks.getAllUsers);
   
   // Debounce search query (400ms delay)
   useEffect(() => {
@@ -287,16 +295,18 @@ function App() {
     if (importanceFilter !== 'all') params.set('importance', importanceFilter);
     if (sort !== 'latest') params.set('sort', sort);
     if (viewMode !== 'compact') params.set('view', viewMode);
+    if (selectedUsers.size > 0) params.set('users', Array.from(selectedUsers).join(','));
     
     const newUrl = params.toString() 
       ? `${window.location.pathname}?${params.toString()}`
       : window.location.pathname;
     
     window.history.replaceState({}, '', newUrl);
-  }, [showCompleted, showIncomplete, durationFilter, importanceFilter, sort, viewMode]);
+  }, [showCompleted, showIncomplete, durationFilter, importanceFilter, sort, viewMode, selectedUsers]);
   
   const allTasksQuery = useQuery(api.tasks.listAllWithHistoryCount, { 
-    searchQuery: debouncedSearchQuery.trim() || undefined 
+    searchQuery: debouncedSearchQuery.trim() || undefined,
+    userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any[] : undefined
   });
   const isLoading = allTasksQuery === undefined;
   const allTasks = allTasksQuery ?? [];
@@ -448,7 +458,53 @@ function App() {
       <div className="w-[90%] max-w-[2000px] mx-auto">
         {/* Fixed Header with Filters */}
         <div className="sticky top-0 z-10 bg-neutral-900/95 backdrop-blur-sm border-b border-neutral-800 px-6 py-6">
-          <h1 className="text-3xl font-bold text-white mb-4">Tasks Manager</h1>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-3xl font-bold text-white">Konoha Task Manager</h1>
+            {/* User images */}
+            {users && users.length > 0 && (
+              <div className="flex items-center gap-2">
+                {users.map((user) => {
+                  const isSelected = selectedUsers.has(user._id);
+                  return (
+                    <button
+                      key={user._id}
+                      onClick={() => {
+                        const newSelected = new Set(selectedUsers);
+                        if (isSelected) {
+                          newSelected.delete(user._id);
+                        } else {
+                          newSelected.add(user._id);
+                        }
+                        setSelectedUsers(newSelected);
+                        setVisibleCount(PAGE_SIZE);
+                      }}
+                      className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 transition-all relative ${
+                        isSelected 
+                          ? '' 
+                          : 'border border-neutral-700/50 hover:border-neutral-600'
+                      } ${!user.image ? (isSelected ? 'bg-blue-500/20' : 'bg-neutral-700/50') : 'bg-transparent'}`}
+                      title={user.name}
+                    >
+                      {user.image ? (
+                        <img
+                          src={`data:image/jpeg;base64,${user.image}`}
+                          alt={user.name}
+                          className={`w-full h-full object-cover absolute inset-0 ${isSelected ? 'opacity-100' : 'opacity-50'}`}
+                          style={{ display: 'block' }}
+                        />
+                      ) : (
+                        <div className={`w-full h-full flex items-center justify-center text-xs ${
+                          isSelected ? 'text-blue-300 opacity-100' : 'text-neutral-400 opacity-50'
+                        }`}>
+                          {user.name.charAt(0)}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             {/* Status filter buttons */}
             <div className="flex gap-2">
@@ -734,35 +790,139 @@ function App() {
             } : undefined}>
               {visibleTasks.map((task) => {
                 const isToggling = togglingTasks.has(task._id) || togglingImportance.has(task._id);
+                const taskUser = users?.find(u => u._id === task.userId);
                 
                 // List View
                 if (viewMode === 'list') {
                   return (
                     <div
                       key={task._id}
-                      className={`flex items-center gap-4 rounded-xl px-5 py-4 transition-all duration-200 bg-neutral-800 ${
+                      onClick={() => setSelectedTaskId(task._id)}
+                      className={`flex flex-col rounded-xl overflow-hidden transition-all duration-200 bg-neutral-800 cursor-pointer ${
                         task.isImportant ? 'ring-[1.5px] ring-amber-500 ring-inset' : task.isCompleted ? 'ring-[1.5px] ring-green-500 ring-inset' : ''
-                      } ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
+                      } ${isToggling ? 'opacity-70 animate-pulse' : ''} hover:scale-[1.02] hover:z-10 relative`}
                     >
-                      {/* Status toggle */}
-                      <span
-                        onClick={(e) => handleToggle(e, task)}
-                        className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
-                          task.isCompleted ? 'text-green-500' : 'text-neutral-600'
-                        } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
-                        title={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
-                      >
-                        {togglingTasks.has(task._id) ? (
-                          <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                        ) : (
-                          task.isCompleted ? '✓' : '○'
+                      {/* Content */}
+                      <div className="flex items-center gap-4 px-5 py-4">
+                        {/* User */}
+                        {taskUser && (
+                          <div className="w-10 h-10 rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0">
+                            {taskUser.image ? (
+                              <img
+                                src={`data:image/jpeg;base64,${taskUser.image}`}
+                                alt={taskUser.name}
+                                className="w-full h-full object-cover"
+                                title={taskUser.name}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-sm">
+                                {taskUser.name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
                         )}
-                      </span>
+                        
+                        {/* Title and description */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className={`text-base font-semibold truncate ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
+                            {task.text}
+                          </h3>
+                          <p className="text-sm truncate text-neutral-500">
+                            {task.description || "No description"}
+                          </p>
+                        </div>
+                        
+                        {/* Important toggle */}
+                        <span
+                          onClick={(e) => handleToggleImportant(e, task)}
+                          className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
+                            task.isImportant ? 'text-amber-400' : 'text-neutral-600'
+                          } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
+                          title={task.isImportant ? "Remove importance" : "Mark as important"}
+                        >
+                          {togglingImportance.has(task._id) ? (
+                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          ) : (
+                            task.isImportant ? '★' : '☆'
+                          )}
+                        </span>
+                        
+                        {/* Status toggle */}
+                        <span
+                          onClick={(e) => handleToggle(e, task)}
+                          className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
+                            task.isCompleted ? 'text-green-500' : 'text-neutral-600'
+                          } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
+                          title={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
+                        >
+                          {togglingTasks.has(task._id) ? (
+                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          ) : (
+                            task.isCompleted ? '✓' : '○'
+                          )}
+                        </span>
                       
-                      {/* Important toggle */}
+                        {/* Meta info */}
+                        <div className="hidden md:flex items-center gap-6 flex-shrink-0">
+                          <div className="text-center">
+                            <div className="text-xs text-neutral-500">Duration</div>
+                            <div className="text-sm font-medium text-white">{formatDuration(task.duration)}</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-xs text-neutral-500">Updated</div>
+                            <div className="text-sm font-medium text-white">{formatRelativeTime(task.updatedAt)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                // Card Views (Compact & Extended)
+                return (
+                <div
+                  key={task._id}
+                  onClick={() => setSelectedTaskId(task._id)}
+                  className={`group relative flex flex-col rounded-2xl overflow-hidden transition-all duration-200 bg-neutral-800 cursor-pointer ${
+                    task.isImportant ? 'ring-[1.5px] ring-amber-500 ring-inset' : task.isCompleted ? 'ring-[1.5px] ring-green-500 ring-inset' : ''
+                  } ${isToggling ? 'opacity-70 animate-pulse' : ''} hover:scale-[1.05] hover:z-10`}
+                >
+                  <div className="p-5 flex flex-col flex-1">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {/* User */}
+                      {taskUser && (
+                        <div className={`${viewMode === 'extended' ? 'w-10 h-10' : 'w-6 h-6'} rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0`}>
+                          {taskUser.image ? (
+                            <img
+                              src={`data:image/jpeg;base64,${taskUser.image}`}
+                              alt={taskUser.name}
+                              className="w-full h-full object-cover"
+                              title={taskUser.name}
+                            />
+                          ) : (
+                            <div className={`w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 ${viewMode === 'extended' ? 'text-sm' : 'text-xs'}`}>
+                              {taskUser.name.charAt(0)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <h3 
+                        className={`${viewMode === 'extended' ? 'text-xl' : 'text-lg'} font-semibold leading-snug ${
+                          viewMode === 'compact' ? 'line-clamp-1' : ''
+                        } ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}
+                        title={viewMode === 'compact' ? task.text : undefined}
+                      >
+                        {task.text}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <span
                         onClick={(e) => handleToggleImportant(e, task)}
                         className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
@@ -779,54 +939,6 @@ function App() {
                           task.isImportant ? '★' : '☆'
                         )}
                       </span>
-                      
-                      {/* Title and description */}
-                      <div className="flex-1 min-w-0">
-                        <h3 className={`text-base font-semibold truncate ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
-                          {task.text}
-                        </h3>
-                        <p className="text-sm truncate text-neutral-500">
-                          {task.description || "No description"}
-                        </p>
-                      </div>
-                      
-                      {/* Meta info */}
-                      <div className="hidden md:flex items-center gap-6 flex-shrink-0">
-                        <div className="text-center">
-                          <div className="text-xs text-neutral-500">Duration</div>
-                          <div className="text-sm font-medium text-white">{formatDuration(task.duration)}</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-xs text-neutral-500">Updated</div>
-                          <div className="text-sm font-medium text-white">{formatRelativeTime(task.updatedAt)}</div>
-                        </div>
-                      </div>
-                      
-                      {/* Action button */}
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button
-                          onClick={() => setSelectedTaskId(task._id)}
-                          size="sm"
-                          className="text-xs px-3 py-1.5 h-auto bg-neutral-700 hover:bg-neutral-600 text-white"
-                        >
-                          Details
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                }
-                
-                // Card Views (Compact & Extended)
-                return (
-                <div
-                  key={task._id}
-                  className={`group relative flex flex-col rounded-2xl p-5 transition-all duration-200 bg-neutral-800 ${
-                    task.isImportant ? 'ring-[1.5px] ring-amber-500 ring-inset' : task.isCompleted ? 'ring-[1.5px] ring-green-500 ring-inset' : ''
-                  } ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {/* Status toggle */}
                       <span
                         onClick={(e) => handleToggle(e, task)}
                         className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
@@ -843,34 +955,16 @@ function App() {
                           task.isCompleted ? '✓' : '○'
                         )}
                       </span>
-                      <h3 className={`text-lg font-semibold leading-snug ${
-                        viewMode === 'compact' ? 'line-clamp-1' : ''
-                      } ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
-                        {task.text}
-                      </h3>
                     </div>
-                    <span
-                      onClick={(e) => handleToggleImportant(e, task)}
-                      className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
-                        task.isImportant ? 'text-amber-400' : 'text-neutral-600'
-                      } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
-                      title={task.isImportant ? "Remove importance" : "Mark as important"}
-                    >
-                      {togglingImportance.has(task._id) ? (
-                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      ) : (
-                        task.isImportant ? '★' : '☆'
-                      )}
-                    </span>
                   </div>
-                  <p className={`text-sm leading-relaxed ${
-                    viewMode === 'compact' ? 'line-clamp-2 mb-2' : 'mb-4 flex-1'
-                  } ${
-                    task.isCompleted ? "text-neutral-500" : "text-neutral-400"
-                  }`}>
+                  <p 
+                    className={`text-sm leading-relaxed ${
+                      viewMode === 'compact' ? 'line-clamp-2 mb-2' : 'mb-4 flex-1'
+                    } ${
+                      task.isCompleted ? "text-neutral-500" : "text-neutral-400"
+                    }`}
+                    title={viewMode === 'compact' && task.description ? task.description : undefined}
+                  >
                     {task.description || "No description"}
                   </p>
                   
@@ -891,7 +985,7 @@ function App() {
                     </div>
                   )}
                   
-                  {viewMode === 'compact' ? (
+                  {viewMode === 'compact' && (
                     <div className="flex items-center justify-between mt-auto pt-3 border-t border-neutral-700">
                       <span className="text-xs text-neutral-500">
                         {sort === 'newest' || sort === 'oldest' 
@@ -902,24 +996,9 @@ function App() {
                           ? `${task.historyCount} change${task.historyCount !== 1 ? 's' : ''}`
                           : formatRelativeTime(task.updatedAt)}
                       </span>
-                      <Button
-                        onClick={() => setSelectedTaskId(task._id)}
-                        size="sm"
-                        className="text-xs px-3 py-1 h-auto bg-neutral-700 hover:bg-neutral-600 text-white"
-                      >
-                        Details
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="mt-auto">
-                      <Button
-                        onClick={() => setSelectedTaskId(task._id)}
-                        className="w-full py-3 bg-neutral-700 hover:bg-neutral-600 text-white"
-                      >
-                        Details
-                      </Button>
                     </div>
                   )}
+                  </div>
                 </div>
               );
               })}
@@ -941,21 +1020,41 @@ function App() {
       {/* Task Details Sheet */}
       <Sheet open={!!selectedTask} onOpenChange={(open) => !open && setSelectedTaskId(null)}>
         <SheetContent className="bg-neutral-900 border-neutral-700 text-white flex flex-col h-full w-[510px] sm:max-w-[510px]">
-          {selectedTask && (
-            <>
-              <SheetHeader className="pr-8">
-                <SheetTitle className="text-white text-xl">{selectedTask.text}</SheetTitle>
-                <SheetDescription className="text-neutral-400 flex items-center gap-3">
-                  <span className={selectedTask.isCompleted ? "text-green-500" : "text-neutral-400"}>
-                    {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
-                  </span>
-                  <span className={selectedTask.isImportant ? "text-amber-400" : "text-neutral-400"}>
-                    {selectedTask.isImportant ? "★ Important" : "☆ Not Important"}
-                  </span>
-                </SheetDescription>
-              </SheetHeader>
-              
-              <div className="mt-6 space-y-6 flex flex-col flex-1 min-h-0">
+          {selectedTask && (() => {
+            const drawerTaskUser = users?.find(u => u._id === selectedTask.userId);
+            return (
+              <>
+                <SheetHeader className="pr-8">
+                  <SheetTitle className="text-white text-xl flex items-center gap-3">
+                    {drawerTaskUser && (
+                      <div className="w-10 h-10 rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0">
+                        {drawerTaskUser.image ? (
+                          <img
+                            src={`data:image/jpeg;base64,${drawerTaskUser.image}`}
+                            alt={drawerTaskUser.name}
+                            className="w-full h-full object-cover"
+                            title={drawerTaskUser.name}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-sm">
+                            {drawerTaskUser.name.charAt(0)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {selectedTask.text}
+                  </SheetTitle>
+                  <SheetDescription className="text-neutral-400 flex items-center gap-3">
+                    <span className={selectedTask.isCompleted ? "text-green-500" : "text-neutral-400"}>
+                      {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
+                    </span>
+                    <span className={selectedTask.isImportant ? "text-amber-400" : "text-neutral-400"}>
+                      {selectedTask.isImportant ? "★ Important" : "☆ Not Important"}
+                    </span>
+                  </SheetDescription>
+                </SheetHeader>
+                
+                <div className="mt-6 space-y-6 flex flex-col flex-1 min-h-0">
                 <div className="flex-shrink-0">
                   <h3 className="text-sm font-medium text-neutral-400 mb-2">Description</h3>
                   <p className="text-white/90 leading-relaxed">
@@ -970,11 +1069,21 @@ function App() {
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-neutral-700">
                     <span className="text-neutral-400">Created</span>
-                    <span className="text-white">{formatRelativeTime(selectedTask.createdAt)}</span>
+                    <span 
+                      className="text-white cursor-help" 
+                      title={selectedTask.createdAt ? formatDateTime(selectedTask.createdAt) : "Unknown"}
+                    >
+                      {formatRelativeTime(selectedTask.createdAt)}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-neutral-700">
                     <span className="text-neutral-400">Last Updated</span>
-                    <span className="text-white">{formatRelativeTime(selectedTask.updatedAt)}</span>
+                    <span 
+                      className="text-white cursor-help" 
+                      title={selectedTask.updatedAt ? formatDateTime(selectedTask.updatedAt) : "Unknown"}
+                    >
+                      {formatRelativeTime(selectedTask.updatedAt)}
+                    </span>
                   </div>
                 </div>
 
@@ -1076,8 +1185,9 @@ function App() {
                   <span>{selectedTask.isCompleted ? "Mark as Incomplete" : "Mark as Complete"}</span>
                 </Button>
               </div>
-            </>
-          )}
+              </>
+            );
+          })()}
         </SheetContent>
       </Sheet>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
