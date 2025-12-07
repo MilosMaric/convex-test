@@ -9,6 +9,9 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { ToastContainer, Toast } from "@/components/ui/toast";
+
+type ToastType = 'completed' | 'incomplete' | 'important' | 'not-important';
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 
 const PAGE_SIZE = 50;
@@ -302,6 +305,16 @@ function App() {
   const toggleImportant = useMutation(api.tasks.toggleImportant);
   const [togglingTasks, setTogglingTasks] = useState<Set<string>>(new Set());
   const [togglingImportance, setTogglingImportance] = useState<Set<string>>(new Set());
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const addToast = useCallback((message: string, type: ToastType) => {
+    const id = Math.random().toString(36).substring(7);
+    setToasts((prev) => [...prev, { id, message, type }]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
   
   // Look up the selected task from fresh query data
   const selectedTask = selectedTaskId ? allTasks?.find(t => t._id === selectedTaskId) ?? null : null;
@@ -389,9 +402,11 @@ function App() {
 
   const handleToggle = async (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
+    const wasCompleted = task.isCompleted;
     setTogglingTasks(prev => new Set(prev).add(task._id));
     try {
       await toggleCompleted({ id: task._id as any });
+      addToast(`Task marked as ${wasCompleted ? 'incomplete' : 'complete'}`, wasCompleted ? 'incomplete' : 'completed');
     } finally {
       setTogglingTasks(prev => {
         const next = new Set(prev);
@@ -403,9 +418,11 @@ function App() {
 
   const handleToggleImportant = async (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
+    const wasImportant = task.isImportant;
     setTogglingImportance(prev => new Set(prev).add(task._id));
     try {
       await toggleImportant({ id: task._id as any });
+      addToast(`Task marked as ${wasImportant ? 'not important' : 'important'}`, wasImportant ? 'not-important' : 'important');
     } finally {
       setTogglingImportance(prev => {
         const next = new Set(prev);
@@ -716,7 +733,7 @@ function App() {
               gridAutoRows: '1fr'
             } : undefined}>
               {visibleTasks.map((task) => {
-                const isToggling = togglingTasks.has(task._id);
+                const isToggling = togglingTasks.has(task._id) || togglingImportance.has(task._id);
                 
                 // List View
                 if (viewMode === 'list') {
@@ -730,23 +747,37 @@ function App() {
                       {/* Status toggle */}
                       <span
                         onClick={(e) => handleToggle(e, task)}
-                        className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                        className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
                           task.isCompleted ? 'text-green-500' : 'text-neutral-600'
-                        } ${isToggling ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                        } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                         title={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
                       >
-                        {task.isCompleted ? '✓' : '○'}
+                        {togglingTasks.has(task._id) ? (
+                          <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          task.isCompleted ? '✓' : '○'
+                        )}
                       </span>
                       
                       {/* Important toggle */}
                       <span
                         onClick={(e) => handleToggleImportant(e, task)}
-                        className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                        className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
                           task.isImportant ? 'text-amber-400' : 'text-neutral-600'
-                        } ${togglingImportance.has(task._id) ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                        } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                         title={task.isImportant ? "Remove importance" : "Mark as important"}
                       >
-                        {task.isImportant ? '★' : '☆'}
+                        {togglingImportance.has(task._id) ? (
+                          <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          task.isImportant ? '★' : '☆'
+                        )}
                       </span>
                       
                       {/* Title and description */}
@@ -798,12 +829,19 @@ function App() {
                       {/* Status toggle */}
                       <span
                         onClick={(e) => handleToggle(e, task)}
-                        className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                        className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
                           task.isCompleted ? 'text-green-500' : 'text-neutral-600'
-                        } ${isToggling ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                        } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                         title={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
                       >
-                        {task.isCompleted ? '✓' : '○'}
+                        {togglingTasks.has(task._id) ? (
+                          <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          task.isCompleted ? '✓' : '○'
+                        )}
                       </span>
                       <h3 className={`text-lg font-semibold leading-snug ${
                         viewMode === 'compact' ? 'line-clamp-1' : ''
@@ -813,12 +851,19 @@ function App() {
                     </div>
                     <span
                       onClick={(e) => handleToggleImportant(e, task)}
-                      className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                      className={`text-xl flex-shrink-0 transition-transform hover:scale-125 select-none ${
                         task.isImportant ? 'text-amber-400' : 'text-neutral-600'
-                      } ${togglingImportance.has(task._id) ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                      } ${(togglingTasks.has(task._id) || togglingImportance.has(task._id)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}
                       title={task.isImportant ? "Remove importance" : "Mark as important"}
                     >
-                      {task.isImportant ? '★' : '☆'}
+                      {togglingImportance.has(task._id) ? (
+                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        task.isImportant ? '★' : '☆'
+                      )}
                     </span>
                   </div>
                   <p className={`text-sm leading-relaxed ${
@@ -962,9 +1007,11 @@ function App() {
               <div className="pt-4 pb-2 flex-shrink-0 flex gap-2">
                 <Button
                   onClick={async () => {
+                    const wasImportant = selectedTask.isImportant;
                     setTogglingImportance(prev => new Set(prev).add(selectedTask._id));
                     try {
                       await toggleImportant({ id: selectedTask._id as any });
+                      addToast(`Task marked as ${wasImportant ? 'not important' : 'important'}`, wasImportant ? 'not-important' : 'important');
                     } finally {
                       setTogglingImportance(prev => {
                         const next = new Set(prev);
@@ -995,9 +1042,11 @@ function App() {
                 </Button>
                 <Button
                   onClick={async () => {
+                    const wasCompleted = selectedTask.isCompleted;
                     setTogglingTasks(prev => new Set(prev).add(selectedTask._id));
                     try {
                       await toggleCompleted({ id: selectedTask._id as any });
+                      addToast(`Task marked as ${wasCompleted ? 'incomplete' : 'complete'}`, wasCompleted ? 'incomplete' : 'completed');
                     } finally {
                       setTogglingTasks(prev => {
                         const next = new Set(prev);
@@ -1031,6 +1080,7 @@ function App() {
           )}
         </SheetContent>
       </Sheet>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
