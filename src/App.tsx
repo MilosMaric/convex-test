@@ -9,7 +9,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 
 const PAGE_SIZE = 50;
 
@@ -20,14 +20,16 @@ type Task = {
   text: string;
   description?: string;
   isCompleted: boolean;
+  isImportant?: boolean;
   createdAt?: number;
   updatedAt?: number;
   duration?: number;
   historyCount: number;
 };
 
-type FilterType = 'all' | 'completed' | 'incomplete';
+// Removed FilterType - now using showCompleted and showIncomplete booleans
 type DurationFilterType = 'all' | 'quick' | 'long';
+type ImportanceFilterType = 'all' | 'important' | 'not-important';
 type SortType = 'latest' | 'inactive' | 'newest' | 'oldest' | 'frequent' | 'unfrequent' | 'quickest' | 'longest';
 type ViewMode = 'compact' | 'extended' | 'list';
 
@@ -77,17 +79,25 @@ function formatDateTime(timestamp: number): string {
 
 function HistoryFilterChips({ 
   showCompleted, 
-  showIncomplete, 
+  showIncomplete,
+  showImportant,
+  showNotImportant,
   onToggleCompleted, 
-  onToggleIncomplete 
+  onToggleIncomplete,
+  onToggleImportant,
+  onToggleNotImportant
 }: { 
   showCompleted: boolean; 
-  showIncomplete: boolean; 
+  showIncomplete: boolean;
+  showImportant: boolean;
+  showNotImportant: boolean;
   onToggleCompleted: () => void; 
   onToggleIncomplete: () => void;
+  onToggleImportant: () => void;
+  onToggleNotImportant: () => void;
 }) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       <button
         onClick={onToggleCompleted}
         className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
@@ -96,7 +106,7 @@ function HistoryFilterChips({
             : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
         }`}
       >
-        Completed
+        ✓ Completed
       </button>
       <button
         onClick={onToggleIncomplete}
@@ -106,16 +116,38 @@ function HistoryFilterChips({
             : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
         }`}
       >
-        Incomplete
+        ○ Incomplete
+      </button>
+      <button
+        onClick={onToggleImportant}
+        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+          showImportant 
+            ? "bg-amber-500 text-white" 
+            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+        }`}
+      >
+        ★ Important
+      </button>
+      <button
+        onClick={onToggleNotImportant}
+        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+          showNotImportant 
+            ? "bg-neutral-500 text-white" 
+            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+        }`}
+      >
+        ☆ Not Important
       </button>
     </div>
   );
 }
 
-function TaskHistory({ taskId, showCompleted, showIncomplete }: { 
+function TaskHistory({ taskId, showCompleted, showIncomplete, showImportant, showNotImportant }: { 
   taskId: string; 
   showCompleted: boolean; 
   showIncomplete: boolean;
+  showImportant: boolean;
+  showNotImportant: boolean;
 }) {
   const history = useQuery(api.tasks.getTaskHistory, { taskId: taskId as any });
 
@@ -129,9 +161,22 @@ function TaskHistory({ taskId, showCompleted, showIncomplete }: {
 
   // Filter history based on selected chips
   const filteredHistory = history.filter(entry => {
-    if (!showCompleted && !showIncomplete) return true; // Show all
-    if (showCompleted && entry.changedTo) return true;
-    if (showIncomplete && !entry.changedTo) return true;
+    const hasAnyFilter = showCompleted || showIncomplete || showImportant || showNotImportant;
+    if (!hasAnyFilter) return true; // Show all
+    
+    const isCompletionChange = !entry.changeType || entry.changeType === "completion";
+    const isImportanceChange = entry.changeType === "importance";
+    
+    if (isCompletionChange) {
+      if (showCompleted && entry.changedTo) return true;
+      if (showIncomplete && !entry.changedTo) return true;
+    }
+    
+    if (isImportanceChange) {
+      if (showImportant && entry.changedTo) return true;
+      if (showNotImportant && !entry.changedTo) return true;
+    }
+    
     return false;
   });
 
@@ -141,19 +186,31 @@ function TaskHistory({ taskId, showCompleted, showIncomplete }: {
 
   return (
     <div className="space-y-2">
-      {filteredHistory.map((entry) => (
-        <div
-          key={entry._id}
-          className="flex justify-between items-center py-2 px-3 bg-neutral-800 rounded-lg"
-        >
-          <span className={entry.changedTo ? "text-green-400" : "text-neutral-400"}>
-            {entry.changedTo ? "✓ Completed" : "○ Incomplete"}
-          </span>
-          <span className="text-neutral-500 text-sm">
-            {formatDateTime(entry.changedAt)}
-          </span>
-        </div>
-      ))}
+      {filteredHistory.map((entry) => {
+        const isCompletionChange = !entry.changeType || entry.changeType === "completion";
+        const isImportanceChange = entry.changeType === "importance";
+        
+        return (
+          <div
+            key={entry._id}
+            className="flex justify-between items-center py-2 px-3 bg-neutral-800 rounded-lg"
+          >
+            <span className={
+              isImportanceChange 
+                ? (entry.changedTo ? "text-amber-400" : "text-neutral-400")
+                : (entry.changedTo ? "text-green-400" : "text-neutral-400")
+            }>
+              {isImportanceChange 
+                ? (entry.changedTo ? "★ Important" : "☆ Not Important")
+                : (entry.changedTo ? "✓ Completed" : "○ Incomplete")
+              }
+            </span>
+            <span className="text-neutral-500 text-sm">
+              {formatDateTime(entry.changedAt)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -161,14 +218,18 @@ function TaskHistory({ taskId, showCompleted, showIncomplete }: {
 // Read initial values from URL
 function getInitialParams() {
   const params = new URLSearchParams(window.location.search);
-  const filter = params.get('filter') as FilterType | null;
+  const showCompleted = params.get('completed');
+  const showIncomplete = params.get('incomplete');
   const durationFilter = params.get('duration') as DurationFilterType | null;
+  const importanceFilter = params.get('importance') as ImportanceFilterType | null;
   const sort = params.get('sort') as SortType | null;
   const view = params.get('view') as ViewMode | null;
   
   return {
-    filter: filter && ['all', 'completed', 'incomplete'].includes(filter) ? filter : 'all',
+    showCompleted: showCompleted === null ? true : showCompleted === 'true',
+    showIncomplete: showIncomplete === null ? true : showIncomplete === 'true',
     durationFilter: durationFilter && ['all', 'quick', 'long'].includes(durationFilter) ? durationFilter : 'all',
+    importanceFilter: importanceFilter && ['all', 'important', 'not-important'].includes(importanceFilter) ? importanceFilter : 'all',
     sort: sort && ['latest', 'inactive', 'newest', 'oldest', 'frequent', 'unfrequent', 'quickest', 'longest'].includes(sort) ? sort : 'latest',
     viewMode: view && ['compact', 'extended', 'list'].includes(view) ? view : 'compact',
   };
@@ -176,20 +237,39 @@ function getInitialParams() {
 
 function App() {
   const initialParams = getInitialParams();
-  const [filter, setFilter] = useState<FilterType>(initialParams.filter);
+  const [showCompleted, setShowCompleted] = useState(initialParams.showCompleted);
+  const [showIncomplete, setShowIncomplete] = useState(initialParams.showIncomplete);
   const [durationFilter, setDurationFilter] = useState<DurationFilterType>(initialParams.durationFilter);
+  const [importanceFilter, setImportanceFilter] = useState<ImportanceFilterType>(initialParams.importanceFilter);
   const [sort, setSort] = useState<SortType>(initialParams.sort);
   const [viewMode, setViewMode] = useState<ViewMode>(initialParams.viewMode);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [historyShowCompleted, setHistoryShowCompleted] = useState(false);
   const [historyShowIncomplete, setHistoryShowIncomplete] = useState(false);
+  const [historyShowImportant, setHistoryShowImportant] = useState(false);
+  const [historyShowNotImportant, setHistoryShowNotImportant] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  
+  // Toggle handlers that ensure at least one is always selected
+  const toggleShowCompleted = () => {
+    if (showCompleted && !showIncomplete) return; // Can't deselect if it's the only one
+    setShowCompleted(!showCompleted);
+    setVisibleCount(PAGE_SIZE);
+  };
+  
+  const toggleShowIncomplete = () => {
+    if (showIncomplete && !showCompleted) return; // Can't deselect if it's the only one
+    setShowIncomplete(!showIncomplete);
+    setVisibleCount(PAGE_SIZE);
+  };
   
   // Update URL when filters/sort/view change
   useEffect(() => {
     const params = new URLSearchParams();
-    if (filter !== 'all') params.set('filter', filter);
+    if (!showCompleted) params.set('completed', 'false');
+    if (!showIncomplete) params.set('incomplete', 'false');
     if (durationFilter !== 'all') params.set('duration', durationFilter);
+    if (importanceFilter !== 'all') params.set('importance', importanceFilter);
     if (sort !== 'latest') params.set('sort', sort);
     if (viewMode !== 'compact') params.set('view', viewMode);
     
@@ -198,14 +278,16 @@ function App() {
       : window.location.pathname;
     
     window.history.replaceState({}, '', newUrl);
-  }, [filter, durationFilter, sort, viewMode]);
+  }, [showCompleted, showIncomplete, durationFilter, importanceFilter, sort, viewMode]);
   
   const allTasksQuery = useQuery(api.tasks.listAllWithHistoryCount);
   const isLoading = allTasksQuery === undefined;
   const allTasks = allTasksQuery ?? [];
   
   const toggleCompleted = useMutation(api.tasks.toggleCompleted);
+  const toggleImportant = useMutation(api.tasks.toggleImportant);
   const [togglingTasks, setTogglingTasks] = useState<Set<string>>(new Set());
+  const [togglingImportance, setTogglingImportance] = useState<Set<string>>(new Set());
   
   // Look up the selected task from fresh query data
   const selectedTask = selectedTaskId ? allTasks?.find(t => t._id === selectedTaskId) ?? null : null;
@@ -214,10 +296,10 @@ function App() {
   const sortedAndFilteredTasks = useMemo(() => {
     // First filter by status
     let filtered = allTasks.filter(task => {
-      if (filter === 'all') return true;
-      if (filter === 'completed') return task.isCompleted;
-      if (filter === 'incomplete') return !task.isCompleted;
-      return true;
+      if (showCompleted && showIncomplete) return true;
+      if (showCompleted && task.isCompleted) return true;
+      if (showIncomplete && !task.isCompleted) return true;
+      return false;
     });
     
     // Then filter by duration
@@ -226,6 +308,14 @@ function App() {
       const duration = task.duration ?? 0;
       if (durationFilter === 'quick') return duration <= 15;
       if (durationFilter === 'long') return duration > 15;
+      return true;
+    });
+    
+    // Then filter by importance
+    filtered = filtered.filter(task => {
+      if (importanceFilter === 'all') return true;
+      if (importanceFilter === 'important') return task.isImportant === true;
+      if (importanceFilter === 'not-important') return !task.isImportant;
       return true;
     });
     
@@ -252,17 +342,36 @@ function App() {
           return 0;
       }
     });
-  }, [allTasks, filter, durationFilter, sort]);
+  }, [allTasks, showCompleted, showIncomplete, durationFilter, importanceFilter, sort]);
   
   // Paginate for infinite scroll
   const visibleTasks = sortedAndFilteredTasks.slice(0, visibleCount);
   const hasMore = visibleCount < sortedAndFilteredTasks.length;
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     if (hasMore) {
       setVisibleCount(prev => prev + PAGE_SIZE);
     }
-  };
+  }, [hasMore]);
+
+  // Infinite scroll with IntersectionObserver
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          handleLoadMore();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [handleLoadMore, hasMore]);
 
   const handleToggle = async (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
@@ -271,6 +380,20 @@ function App() {
       await toggleCompleted({ id: task._id as any });
     } finally {
       setTogglingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(task._id);
+        return next;
+      });
+    }
+  };
+
+  const handleToggleImportant = async (e: React.MouseEvent, task: Task) => {
+    e.stopPropagation();
+    setTogglingImportance(prev => new Set(prev).add(task._id));
+    try {
+      await toggleImportant({ id: task._id as any });
+    } finally {
+      setTogglingImportance(prev => {
         const next = new Set(prev);
         next.delete(task._id);
         return next;
@@ -299,43 +422,24 @@ function App() {
             {/* Status filter buttons */}
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  setFilter('all');
-                  setVisibleCount(PAGE_SIZE);
-                }}
+                onClick={toggleShowCompleted}
                 className={`px-5 py-2 rounded-full font-medium transition-all ${
-                  filter === 'all'
-                    ? "bg-white text-neutral-900"
-                    : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => {
-                  setFilter('completed');
-                  setVisibleCount(PAGE_SIZE);
-                }}
-                className={`px-5 py-2 rounded-full font-medium transition-all ${
-                  filter === 'completed'
+                  showCompleted
                     ? "bg-green-600 text-white"
                     : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
-                }`}
+                } ${showCompleted && !showIncomplete ? 'cursor-not-allowed' : ''}`}
               >
-                Completed
+                ✓ Completed
               </button>
               <button
-                onClick={() => {
-                  setFilter('incomplete');
-                  setVisibleCount(PAGE_SIZE);
-                }}
+                onClick={toggleShowIncomplete}
                 className={`px-5 py-2 rounded-full font-medium transition-all ${
-                  filter === 'incomplete'
+                  showIncomplete
                     ? "bg-neutral-600 text-white"
                     : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
-                }`}
+                } ${showIncomplete && !showCompleted ? 'cursor-not-allowed' : ''}`}
               >
-                Incomplete
+                ○ Incomplete
               </button>
             </div>
             
@@ -352,7 +456,7 @@ function App() {
                     : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
                 }`}
               >
-                Quick (≤15m)
+                ⚡ Quick
               </button>
               <button
                 onClick={() => {
@@ -365,7 +469,24 @@ function App() {
                     : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
                 }`}
               >
-                Long (&gt;15m)
+                🕐 Long
+              </button>
+            </div>
+            
+            {/* Importance filter */}
+            <div className="flex gap-2 border-l border-neutral-700 pl-3">
+              <button
+                onClick={() => {
+                  setImportanceFilter(importanceFilter === 'important' ? 'all' : 'important');
+                  setVisibleCount(PAGE_SIZE);
+                }}
+                className={`px-4 py-2 rounded-full font-medium transition-all ${
+                  importanceFilter === 'important'
+                    ? "bg-amber-500 text-white"
+                    : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
+                }`}
+              >
+                ★ Important
               </button>
             </div>
             
@@ -560,25 +681,38 @@ function App() {
                   return (
                     <div
                       key={task._id}
-                      className={`flex items-center gap-4 rounded-xl px-5 py-4 transition-all duration-200 ${
-                        task.isCompleted 
-                          ? "bg-green-600/90" 
-                          : "bg-neutral-800"
-                      } ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
+                      className={`flex items-center gap-4 rounded-xl px-5 py-4 transition-all duration-200 bg-neutral-800 ${
+                        task.isCompleted ? "opacity-80" : ""
+                      } ${task.isImportant ? 'ring-2 ring-amber-500 ring-inset' : ''} ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
                     >
-                      {/* Status indicator */}
-                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                        task.isCompleted ? 'bg-white/80' : 'bg-neutral-600'
-                      }`} />
+                      {/* Status toggle */}
+                      <span
+                        onClick={(e) => handleToggle(e, task)}
+                        className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                          task.isCompleted ? 'text-green-500' : 'text-neutral-600'
+                        } ${isToggling ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                        title={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
+                      >
+                        {task.isCompleted ? '✓' : '○'}
+                      </span>
+                      
+                      {/* Important toggle */}
+                      <span
+                        onClick={(e) => handleToggleImportant(e, task)}
+                        className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                          task.isImportant ? 'text-amber-400' : 'text-neutral-600'
+                        } ${togglingImportance.has(task._id) ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                        title={task.isImportant ? "Remove importance" : "Mark as important"}
+                      >
+                        {task.isImportant ? '★' : '☆'}
+                      </span>
                       
                       {/* Title and description */}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-base font-semibold text-white truncate">
+                        <h3 className={`text-base font-semibold truncate ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
                           {task.text}
                         </h3>
-                        <p className={`text-sm truncate ${
-                          task.isCompleted ? "text-white/60" : "text-neutral-500"
-                        }`}>
+                        <p className="text-sm truncate text-neutral-500">
                           {task.description || "No description"}
                         </p>
                       </div>
@@ -586,42 +720,23 @@ function App() {
                       {/* Meta info */}
                       <div className="hidden md:flex items-center gap-6 flex-shrink-0">
                         <div className="text-center">
-                          <div className={`text-xs ${task.isCompleted ? 'text-white/50' : 'text-neutral-500'}`}>Duration</div>
-                          <div className={`text-sm font-medium ${task.isCompleted ? 'text-white/90' : 'text-white'}`}>{formatDuration(task.duration)}</div>
+                          <div className="text-xs text-neutral-500">Duration</div>
+                          <div className="text-sm font-medium text-white">{formatDuration(task.duration)}</div>
                         </div>
                         <div className="text-center">
-                          <div className={`text-xs ${task.isCompleted ? 'text-white/50' : 'text-neutral-500'}`}>Updated</div>
-                          <div className={`text-sm font-medium ${task.isCompleted ? 'text-white/90' : 'text-white'}`}>{formatRelativeTime(task.updatedAt)}</div>
+                          <div className="text-xs text-neutral-500">Updated</div>
+                          <div className="text-sm font-medium text-white">{formatRelativeTime(task.updatedAt)}</div>
                         </div>
                       </div>
                       
-                      {/* Action buttons */}
+                      {/* Action button */}
                       <div className="flex gap-2 flex-shrink-0">
                         <Button
                           onClick={() => setSelectedTaskId(task._id)}
                           size="sm"
-                          className="text-xs px-3 py-1.5 h-auto w-[90px] bg-neutral-600 hover:bg-neutral-500 text-white"
+                          className="text-xs px-3 py-1.5 h-auto bg-neutral-700 hover:bg-neutral-600 text-white"
                         >
                           Details
-                        </Button>
-                        <Button
-                          onClick={(e) => handleToggle(e, task)}
-                          size="sm"
-                          disabled={isToggling}
-                          className={`text-xs px-3 py-1.5 h-auto w-[90px] ${
-                            task.isCompleted 
-                              ? "bg-neutral-600 hover:bg-neutral-500 text-white" 
-                              : "bg-green-600 hover:bg-green-700 text-white"
-                          } ${isToggling ? 'cursor-not-allowed' : ''}`}
-                        >
-                          {isToggling ? (
-                            <svg className="animate-spin h-4 w-4 mx-auto" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                          ) : (
-                            task.isCompleted ? "Incomplete" : "Complete"
-                          )}
                         </Button>
                       </div>
                     </div>
@@ -632,41 +747,62 @@ function App() {
                 return (
                 <div
                   key={task._id}
-                  className={`group relative flex flex-col rounded-2xl p-5 transition-all duration-200 ${
-                    task.isCompleted 
-                      ? "bg-green-600/90" 
-                      : "bg-neutral-800"
-                  } ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
+                  className={`group relative flex flex-col rounded-2xl p-5 transition-all duration-200 bg-neutral-800 ${
+                    task.isCompleted ? "opacity-80" : ""
+                  } ${task.isImportant ? 'ring-2 ring-amber-500 ring-inset' : ''} ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
                 >
-                  <h3 className="text-lg font-semibold text-white mb-3 leading-snug">
-                    {task.text}
-                  </h3>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {/* Status toggle */}
+                      <span
+                        onClick={(e) => handleToggle(e, task)}
+                        className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                          task.isCompleted ? 'text-green-500' : 'text-neutral-600'
+                        } ${isToggling ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                        title={task.isCompleted ? "Mark as incomplete" : "Mark as complete"}
+                      >
+                        {task.isCompleted ? '✓' : '○'}
+                      </span>
+                      <h3 className={`text-lg font-semibold leading-snug ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
+                        {task.text}
+                      </h3>
+                    </div>
+                    <span
+                      onClick={(e) => handleToggleImportant(e, task)}
+                      className={`text-xl flex-shrink-0 cursor-pointer transition-transform hover:scale-125 select-none ${
+                        task.isImportant ? 'text-amber-400' : 'text-neutral-600'
+                      } ${togglingImportance.has(task._id) ? 'opacity-50 animate-pulse pointer-events-none' : ''}`}
+                      title={task.isImportant ? "Remove importance" : "Mark as important"}
+                    >
+                      {task.isImportant ? '★' : '☆'}
+                    </span>
+                  </div>
                   <p className={`text-sm leading-relaxed mb-4 flex-1 ${
-                    task.isCompleted ? "text-white/80" : "text-neutral-400"
+                    task.isCompleted ? "text-neutral-500" : "text-neutral-400"
                   }`}>
                     {task.description || "No description"}
                   </p>
                   
                   {viewMode === 'extended' && (
-                    <div className={`grid grid-cols-3 gap-3 mb-4 py-3 border-y ${task.isCompleted ? 'border-white/20' : 'border-neutral-700'}`}>
+                    <div className="grid grid-cols-3 gap-3 mb-4 py-3 border-y border-neutral-700">
                       <div>
-                        <div className={`text-xs mb-1 ${task.isCompleted ? 'text-white/50' : 'text-neutral-500'}`}>Created</div>
-                        <div className={`text-sm font-medium ${task.isCompleted ? 'text-white/90' : 'text-white'}`}>{formatRelativeTime(task.createdAt)}</div>
+                        <div className="text-xs mb-1 text-neutral-500">Created</div>
+                        <div className="text-sm font-medium text-white">{formatRelativeTime(task.createdAt)}</div>
                       </div>
                       <div className="text-center">
-                        <div className={`text-xs mb-1 ${task.isCompleted ? 'text-white/50' : 'text-neutral-500'}`}>Updated</div>
-                        <div className={`text-sm font-medium ${task.isCompleted ? 'text-white/90' : 'text-white'}`}>{formatRelativeTime(task.updatedAt)}</div>
+                        <div className="text-xs mb-1 text-neutral-500">Updated</div>
+                        <div className="text-sm font-medium text-white">{formatRelativeTime(task.updatedAt)}</div>
                       </div>
                       <div className="text-right">
-                        <div className={`text-xs mb-1 ${task.isCompleted ? 'text-white/50' : 'text-neutral-500'}`}>Duration</div>
-                        <div className={`text-sm font-medium ${task.isCompleted ? 'text-white/90' : 'text-white'}`}>{formatDuration(task.duration)}</div>
+                        <div className="text-xs mb-1 text-neutral-500">Duration</div>
+                        <div className="text-sm font-medium text-white">{formatDuration(task.duration)}</div>
                       </div>
                     </div>
                   )}
                   
                   {viewMode === 'compact' ? (
-                    <div className="flex items-center justify-between mt-auto pt-3 border-t border-white/10">
-                      <span className={`text-xs ${task.isCompleted ? "text-white/60" : "text-neutral-500"}`}>
+                    <div className="flex items-center justify-between mt-auto pt-3 border-t border-neutral-700">
+                      <span className="text-xs text-neutral-500">
                         {sort === 'newest' || sort === 'oldest' 
                           ? formatRelativeTime(task.createdAt)
                           : sort === 'quickest' || sort === 'longest'
@@ -675,68 +811,21 @@ function App() {
                           ? `${task.historyCount} status change${task.historyCount !== 1 ? 's' : ''}`
                           : formatRelativeTime(task.updatedAt)}
                       </span>
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={() => setSelectedTaskId(task._id)}
-                          size="sm"
-                          className={`text-xs px-3 py-1 h-auto ${
-                            task.isCompleted 
-                              ? "bg-neutral-600 hover:bg-neutral-500 text-white" 
-                              : "bg-neutral-600 hover:bg-neutral-500 text-white"
-                          }`}
-                        >
-                          Details
-                        </Button>
-                        <Button
-                          onClick={(e) => handleToggle(e, task)}
-                          size="sm"
-                          disabled={isToggling}
-                          className={`text-xs px-3 py-1 h-auto min-w-[80px] ${
-                            task.isCompleted 
-                              ? "bg-neutral-600 hover:bg-neutral-500 text-white" 
-                              : "bg-green-600 hover:bg-green-700 text-white"
-                          } ${isToggling ? 'cursor-not-allowed' : ''}`}
-                        >
-                          {isToggling ? (
-                            <svg className="animate-spin h-4 w-4 mx-auto" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                          ) : (
-                            task.isCompleted ? "Incomplete" : "Complete"
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-3 mt-auto">
                       <Button
                         onClick={() => setSelectedTaskId(task._id)}
-                        className={`w-full py-3 ${
-                          task.isCompleted 
-                            ? "bg-neutral-600 hover:bg-neutral-500 text-white" 
-                            : "bg-neutral-600 hover:bg-neutral-500 text-white"
-                        }`}
+                        size="sm"
+                        className="text-xs px-3 py-1 h-auto bg-neutral-700 hover:bg-neutral-600 text-white"
                       >
                         Details
                       </Button>
+                    </div>
+                  ) : (
+                    <div className="mt-auto">
                       <Button
-                        onClick={(e) => handleToggle(e, task)}
-                        disabled={isToggling}
-                        className={`w-full py-3 ${
-                          task.isCompleted 
-                            ? "bg-neutral-600 hover:bg-neutral-500 text-white" 
-                            : "bg-green-600 hover:bg-green-700 text-white"
-                        } ${isToggling ? 'cursor-not-allowed' : ''}`}
+                        onClick={() => setSelectedTaskId(task._id)}
+                        className="w-full py-3 bg-neutral-700 hover:bg-neutral-600 text-white"
                       >
-                        {isToggling ? (
-                          <svg className="animate-spin h-5 w-5 mx-auto" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                        ) : (
-                          task.isCompleted ? "Mark as Incomplete" : "Mark as Complete"
-                        )}
+                        Details
                       </Button>
                     </div>
                   )}
@@ -746,14 +835,9 @@ function App() {
             </div>
 
             {/* Load More Trigger */}
-            <div className="py-8 flex justify-center">
+            <div ref={loadMoreRef} className="py-8 flex justify-center">
               {hasMore ? (
-                <button
-                  onClick={handleLoadMore}
-                  className="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors"
-                >
-                  Load More ({sortedAndFilteredTasks.length - visibleCount} remaining)
-                </button>
+                <div className="text-neutral-500 text-sm">Loading more...</div>
               ) : visibleTasks.length > 0 ? (
                 <div className="text-neutral-600 text-sm">All tasks loaded</div>
               ) : null}
@@ -765,13 +849,16 @@ function App() {
 
       {/* Task Details Sheet */}
       <Sheet open={!!selectedTask} onOpenChange={(open) => !open && setSelectedTaskId(null)}>
-        <SheetContent className="bg-neutral-900 border-neutral-700 text-white flex flex-col h-full">
+        <SheetContent className="bg-neutral-900 border-neutral-700 text-white flex flex-col h-full w-[510px] sm:max-w-[510px]">
           {selectedTask && (
             <>
-              <SheetHeader>
+              <SheetHeader className="pr-8">
                 <SheetTitle className="text-white text-xl">{selectedTask.text}</SheetTitle>
-                <SheetDescription className="text-neutral-400">
-                  {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
+                <SheetDescription className="text-neutral-400 flex items-center gap-3">
+                  <span>{selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}</span>
+                  {selectedTask.isImportant && (
+                    <span className="text-amber-400">★ Important</span>
+                  )}
                 </SheetDescription>
               </SheetHeader>
               
@@ -800,12 +887,16 @@ function App() {
 
                 <div className="flex-1 flex flex-col min-h-0">
                   <div className="flex-shrink-0 mb-3">
-                    <h3 className="text-sm font-medium text-neutral-400 mb-2">Status History</h3>
+                    <h3 className="text-sm font-medium text-neutral-400 mb-2">Changes</h3>
                     <HistoryFilterChips
                       showCompleted={historyShowCompleted}
                       showIncomplete={historyShowIncomplete}
+                      showImportant={historyShowImportant}
+                      showNotImportant={historyShowNotImportant}
                       onToggleCompleted={() => setHistoryShowCompleted(!historyShowCompleted)}
                       onToggleIncomplete={() => setHistoryShowIncomplete(!historyShowIncomplete)}
+                      onToggleImportant={() => setHistoryShowImportant(!historyShowImportant)}
+                      onToggleNotImportant={() => setHistoryShowNotImportant(!historyShowNotImportant)}
                     />
                   </div>
                   <div className="flex-1 overflow-y-auto scrollbar-hide">
@@ -813,12 +904,25 @@ function App() {
                       taskId={selectedTask._id} 
                       showCompleted={historyShowCompleted}
                       showIncomplete={historyShowIncomplete}
+                      showImportant={historyShowImportant}
+                      showNotImportant={historyShowNotImportant}
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="pt-4 pb-2 flex-shrink-0">
+              <div className="pt-4 pb-2 flex-shrink-0 space-y-2">
+                <Button
+                  onClick={() => {
+                    toggleImportant({ id: selectedTask._id as any });
+                  }}
+                  className={`w-full ${selectedTask.isImportant 
+                    ? "bg-amber-500 hover:bg-amber-600" 
+                    : "bg-neutral-700 hover:bg-neutral-600"
+                  }`}
+                >
+                  {selectedTask.isImportant ? "★ Remove Importance" : "☆ Mark as Important"}
+                </Button>
                 <Button
                   onClick={() => {
                     toggleCompleted({ id: selectedTask._id as any });

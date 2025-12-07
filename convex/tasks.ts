@@ -50,6 +50,29 @@ export const toggleCompleted = mutation({
     // Record history
     await ctx.db.insert("taskHistory", {
       taskId: args.id,
+      changeType: "completion",
+      changedTo: newStatus,
+      changedAt: now,
+    });
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const toggleImportant = mutation({
+  args: { id: v.id("tasks") },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.id);
+    if (!task) throw new Error("Task not found");
+    const now = Date.now();
+    const newStatus = !task.isImportant;
+    await ctx.db.patch(args.id, { 
+      isImportant: newStatus, 
+      updatedAt: now 
+    });
+    // Record history
+    await ctx.db.insert("taskHistory", {
+      taskId: args.id,
+      changeType: "importance",
       changedTo: newStatus,
       changedAt: now,
     });
