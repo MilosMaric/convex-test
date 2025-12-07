@@ -23,9 +23,20 @@ export const listPaginated = query({
 });
 
 export const listAllWithHistoryCount = query({
-  args: {},
-  handler: async (ctx) => {
-    const tasks = await ctx.db.query("tasks").collect();
+  args: { searchQuery: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    let tasks = await ctx.db.query("tasks").collect();
+    
+    // Filter by search query if provided
+    if (args.searchQuery && args.searchQuery.trim()) {
+      const query = args.searchQuery.toLowerCase().trim();
+      tasks = tasks.filter(task => {
+        const titleMatch = task.text.toLowerCase().includes(query);
+        const descriptionMatch = task.description?.toLowerCase().includes(query) ?? false;
+        return titleMatch || descriptionMatch;
+      });
+    }
+    
     const tasksWithCount = await Promise.all(
       tasks.map(async (task) => {
         const history = await ctx.db

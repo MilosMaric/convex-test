@@ -243,12 +243,24 @@ function App() {
   const [importanceFilter, setImportanceFilter] = useState<ImportanceFilterType>(initialParams.importanceFilter);
   const [sort, setSort] = useState<SortType>(initialParams.sort);
   const [viewMode, setViewMode] = useState<ViewMode>(initialParams.viewMode);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [historyShowCompleted, setHistoryShowCompleted] = useState(false);
   const [historyShowIncomplete, setHistoryShowIncomplete] = useState(false);
   const [historyShowImportant, setHistoryShowImportant] = useState(false);
   const [historyShowNotImportant, setHistoryShowNotImportant] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  
+  // Debounce search query (400ms delay)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      setVisibleCount(PAGE_SIZE);
+    }, 400);
+    
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
   
   // Toggle handlers that ensure at least one is always selected
   const toggleShowCompleted = () => {
@@ -280,7 +292,9 @@ function App() {
     window.history.replaceState({}, '', newUrl);
   }, [showCompleted, showIncomplete, durationFilter, importanceFilter, sort, viewMode]);
   
-  const allTasksQuery = useQuery(api.tasks.listAllWithHistoryCount);
+  const allTasksQuery = useQuery(api.tasks.listAllWithHistoryCount, { 
+    searchQuery: debouncedSearchQuery.trim() || undefined 
+  });
   const isLoading = allTasksQuery === undefined;
   const allTasks = allTasksQuery ?? [];
   
@@ -490,6 +504,34 @@ function App() {
               </button>
             </div>
             
+            {/* Search input */}
+            <div className="flex-1 border-l border-neutral-700 pl-3 relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setVisibleCount(PAGE_SIZE);
+                }}
+                placeholder="Search tasks..."
+                className="w-full bg-neutral-800 text-white border border-neutral-700 rounded-lg px-4 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-600 placeholder:text-neutral-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setVisibleCount(PAGE_SIZE);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
+                  aria-label="Clear search"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 4L4 12M4 4l8 8" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            
             {/* Sort dropdown and View toggle */}
             <div className="flex items-center gap-4 ml-auto">
               <div className="flex items-center gap-2">
@@ -682,8 +724,8 @@ function App() {
                     <div
                       key={task._id}
                       className={`flex items-center gap-4 rounded-xl px-5 py-4 transition-all duration-200 bg-neutral-800 ${
-                        task.isCompleted ? "opacity-80" : ""
-                      } ${task.isImportant ? 'ring-2 ring-amber-500 ring-inset' : ''} ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
+                        task.isImportant ? 'ring-[1.5px] ring-amber-500 ring-inset' : task.isCompleted ? 'ring-[1.5px] ring-green-500 ring-inset' : ''
+                      } ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
                     >
                       {/* Status toggle */}
                       <span
@@ -748,8 +790,8 @@ function App() {
                 <div
                   key={task._id}
                   className={`group relative flex flex-col rounded-2xl p-5 transition-all duration-200 bg-neutral-800 ${
-                    task.isCompleted ? "opacity-80" : ""
-                  } ${task.isImportant ? 'ring-2 ring-amber-500 ring-inset' : ''} ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
+                    task.isImportant ? 'ring-[1.5px] ring-amber-500 ring-inset' : task.isCompleted ? 'ring-[1.5px] ring-green-500 ring-inset' : ''
+                  } ${isToggling ? 'opacity-70 animate-pulse' : ''}`}
                 >
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">

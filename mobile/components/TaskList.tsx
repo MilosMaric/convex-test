@@ -311,8 +311,7 @@ function TaskItem({
       style={[
         styles.taskCard,
         styles.taskIncomplete,
-        item.isCompleted && styles.taskCompletedDimmed,
-        item.isImportant && styles.taskImportant,
+        item.isImportant ? styles.taskImportant : item.isCompleted && styles.taskCompleted,
       ]}
       onPress={onPress}
     >
@@ -783,11 +782,12 @@ const styles = StyleSheet.create({
   taskIncomplete: {
     backgroundColor: '#404040',
   },
-  taskCompletedDimmed: {
-    opacity: 0.7,
+  taskCompleted: {
+    borderWidth: 1.5,
+    borderColor: '#16a34a',
   },
   taskImportant: {
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#f59e0b',
   },
   taskHeader: {
