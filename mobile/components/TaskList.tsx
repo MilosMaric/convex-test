@@ -1,7 +1,7 @@
-import { StyleSheet, FlatList, Pressable, ActivityIndicator, Modal, View as RNView, Text as RNText, ScrollView, Dimensions } from 'react-native';
+import { StyleSheet, FlatList, Pressable, ActivityIndicator, Modal, View as RNView, Text as RNText, ScrollView, Dimensions, Animated, PanResponder, TouchableWithoutFeedback } from 'react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from 'convex/_generated/api';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { Id } from 'convex/_generated/dataModel';
 
 import { Text, View } from '@/components/Themed';
@@ -9,7 +9,9 @@ import { Text, View } from '@/components/Themed';
 type FilterType = 'all' | 'completed' | 'incomplete';
 export type SortType = 'latest' | 'inactive' | 'newest' | 'oldest' | 'frequent' | 'unfrequent' | 'quickest' | 'longest';
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const PAGE_SIZE = 9;
+const SWIPE_THRESHOLD = 80;
 
 export const sortOptions: { value: SortType; label: string }[] = [
   { value: 'latest', label: 'Latest Updated' },
@@ -68,14 +70,22 @@ function formatDateTime(timestamp: number): string {
 
 function HistoryFilterChips({ 
   showCompleted, 
-  showIncomplete, 
+  showIncomplete,
+  showImportant,
+  showNotImportant,
   onToggleCompleted, 
-  onToggleIncomplete 
+  onToggleIncomplete,
+  onToggleImportant,
+  onToggleNotImportant
 }: { 
   showCompleted: boolean; 
-  showIncomplete: boolean; 
+  showIncomplete: boolean;
+  showImportant: boolean;
+  showNotImportant: boolean;
   onToggleCompleted: () => void; 
   onToggleIncomplete: () => void;
+  onToggleImportant: () => void;
+  onToggleNotImportant: () => void;
 }) {
   return (
     <RNView style={historyStyles.chipsContainer}>
@@ -90,7 +100,7 @@ function HistoryFilterChips({
           historyStyles.chipText,
           showCompleted ? historyStyles.chipTextActive : historyStyles.chipTextInactive
         ]}>
-          Completed
+          ✓ Completed
         </RNText>
       </Pressable>
       <Pressable
@@ -104,17 +114,47 @@ function HistoryFilterChips({
           historyStyles.chipText,
           showIncomplete ? historyStyles.chipTextActive : historyStyles.chipTextInactive
         ]}>
-          Incomplete
+          ○ Incomplete
+        </RNText>
+      </Pressable>
+      <Pressable
+        onPress={onToggleImportant}
+        style={[
+          historyStyles.chip,
+          showImportant ? historyStyles.chipActiveImportant : historyStyles.chipInactive
+        ]}
+      >
+        <RNText style={[
+          historyStyles.chipText,
+          showImportant ? historyStyles.chipTextActive : historyStyles.chipTextInactive
+        ]}>
+          ★ Important
+        </RNText>
+      </Pressable>
+      <Pressable
+        onPress={onToggleNotImportant}
+        style={[
+          historyStyles.chip,
+          showNotImportant ? historyStyles.chipActiveIncomplete : historyStyles.chipInactive
+        ]}
+      >
+        <RNText style={[
+          historyStyles.chipText,
+          showNotImportant ? historyStyles.chipTextActive : historyStyles.chipTextInactive
+        ]}>
+          ☆ Not Important
         </RNText>
       </Pressable>
     </RNView>
   );
 }
 
-function TaskHistory({ taskId, showCompleted, showIncomplete }: { 
+function TaskHistory({ taskId, showCompleted, showIncomplete, showImportant, showNotImportant }: { 
   taskId: Id<"tasks">; 
   showCompleted: boolean; 
   showIncomplete: boolean;
+  showImportant: boolean;
+  showNotImportant: boolean;
 }) {
   const history = useQuery(api.tasks.getTaskHistory, { taskId });
 
@@ -123,14 +163,27 @@ function TaskHistory({ taskId, showCompleted, showIncomplete }: {
   }
 
   if (history.length === 0) {
-    return <RNText style={historyStyles.empty}>No status changes recorded yet.</RNText>;
+    return <RNText style={historyStyles.empty}>No changes recorded yet.</RNText>;
   }
 
   // Filter history based on selected chips
   const filteredHistory = history.filter(entry => {
-    if (!showCompleted && !showIncomplete) return true; // Show all
-    if (showCompleted && entry.changedTo) return true;
-    if (showIncomplete && !entry.changedTo) return true;
+    const hasAnyFilter = showCompleted || showIncomplete || showImportant || showNotImportant;
+    if (!hasAnyFilter) return true;
+    
+    const isCompletionChange = !entry.changeType || entry.changeType === "completion";
+    const isImportanceChange = entry.changeType === "importance";
+    
+    if (isCompletionChange) {
+      if (showCompleted && entry.changedTo) return true;
+      if (showIncomplete && !entry.changedTo) return true;
+    }
+    
+    if (isImportanceChange) {
+      if (showImportant && entry.changedTo) return true;
+      if (showNotImportant && !entry.changedTo) return true;
+    }
+    
     return false;
   });
 
@@ -140,16 +193,28 @@ function TaskHistory({ taskId, showCompleted, showIncomplete }: {
 
   return (
     <RNView style={historyStyles.container}>
-      {filteredHistory.map((entry) => (
-        <RNView key={entry._id} style={historyStyles.entry}>
-          <RNText style={entry.changedTo ? historyStyles.completed : historyStyles.incomplete}>
-            {entry.changedTo ? "✓ Completed" : "○ Incomplete"}
-          </RNText>
-          <RNText style={historyStyles.date}>
-            {formatDateTime(entry.changedAt)}
-          </RNText>
-        </RNView>
-      ))}
+      {filteredHistory.map((entry) => {
+        const isCompletionChange = !entry.changeType || entry.changeType === "completion";
+        const isImportanceChange = entry.changeType === "importance";
+        
+        return (
+          <RNView key={entry._id} style={historyStyles.entry}>
+            <RNText style={
+              isImportanceChange 
+                ? (entry.changedTo ? historyStyles.important : historyStyles.incomplete)
+                : (entry.changedTo ? historyStyles.completed : historyStyles.incomplete)
+            }>
+              {isImportanceChange 
+                ? (entry.changedTo ? "★ Important" : "☆ Not Important")
+                : (entry.changedTo ? "✓ Completed" : "○ Incomplete")
+              }
+            </RNText>
+            <RNText style={historyStyles.date}>
+              {formatDateTime(entry.changedAt)}
+            </RNText>
+          </RNView>
+        );
+      })}
     </RNView>
   );
 }
@@ -160,8 +225,9 @@ const historyStyles = StyleSheet.create({
   },
   chipsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   chip: {
     paddingHorizontal: 12,
@@ -176,6 +242,9 @@ const historyStyles = StyleSheet.create({
   },
   chipActiveIncomplete: {
     backgroundColor: '#525252',
+  },
+  chipActiveImportant: {
+    backgroundColor: '#f59e0b',
   },
   chipText: {
     fontSize: 12,
@@ -211,9 +280,169 @@ const historyStyles = StyleSheet.create({
     color: '#888',
     fontSize: 14,
   },
+  important: {
+    color: '#fbbf24',
+    fontSize: 14,
+  },
   date: {
     color: '#666',
     fontSize: 12,
+  },
+});
+
+// Swipeable Task Item Component
+function SwipeableTaskItem({ 
+  item, 
+  onPress, 
+  onToggleComplete,
+  onToggleImportant 
+}: { 
+  item: any; 
+  onPress: () => void;
+  onToggleComplete: () => void;
+  onToggleImportant: () => void;
+}) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const [swiped, setSwiped] = useState(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dx < 0) {
+          translateX.setValue(Math.max(gestureState.dx, -160));
+        } else if (swiped) {
+          translateX.setValue(Math.min(gestureState.dx - 160, 0));
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -SWIPE_THRESHOLD) {
+          Animated.spring(translateX, {
+            toValue: -160,
+            useNativeDriver: true,
+          }).start();
+          setSwiped(true);
+        } else {
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+          setSwiped(false);
+        }
+      },
+    })
+  ).current;
+
+  const closeSwipe = () => {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+    setSwiped(false);
+  };
+
+  return (
+    <RNView style={swipeStyles.container}>
+      {/* Action buttons behind */}
+      <RNView style={swipeStyles.actionsContainer}>
+        <Pressable 
+          style={[swipeStyles.actionButton, { backgroundColor: item.isImportant ? '#525252' : '#f59e0b' }]}
+          onPress={() => {
+            onToggleImportant();
+            closeSwipe();
+          }}
+        >
+          <RNText style={swipeStyles.actionIcon}>{item.isImportant ? '☆' : '★'}</RNText>
+          <RNText style={swipeStyles.actionText}>{item.isImportant ? 'Unimportant' : 'Important'}</RNText>
+        </Pressable>
+        <Pressable 
+          style={[swipeStyles.actionButton, { backgroundColor: item.isCompleted ? '#525252' : '#16a34a' }]}
+          onPress={() => {
+            onToggleComplete();
+            closeSwipe();
+          }}
+        >
+          <RNText style={swipeStyles.actionIcon}>{item.isCompleted ? '○' : '✓'}</RNText>
+          <RNText style={swipeStyles.actionText}>{item.isCompleted ? 'Incomplete' : 'Complete'}</RNText>
+        </Pressable>
+      </RNView>
+      
+      {/* Main card */}
+      <Animated.View
+        style={[
+          swipeStyles.cardWrapper,
+          { transform: [{ translateX }] }
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <Pressable
+          style={[
+            styles.taskCard,
+            styles.taskIncomplete,
+            item.isCompleted && styles.taskCompletedDimmed,
+            item.isImportant && styles.taskImportant,
+          ]}
+          onPress={onPress}
+        >
+          <RNView style={styles.taskHeader}>
+            <RNText style={[styles.taskStatusIcon, item.isCompleted && styles.taskStatusIconCompleted]}>
+              {item.isCompleted ? '✓' : '○'}
+            </RNText>
+            <RNText style={[styles.taskText, item.isCompleted && styles.taskTextCompleted]} numberOfLines={1}>
+              {item.text}
+            </RNText>
+            <RNText style={[styles.taskImportanceIcon, item.isImportant && styles.taskImportanceIconActive]}>
+              {item.isImportant ? '★' : '☆'}
+            </RNText>
+          </RNView>
+          {item.description && (
+            <RNText style={styles.taskDescription} numberOfLines={2}>
+              {item.description}
+            </RNText>
+          )}
+          <RNText style={styles.taskHint}>Tap for details • Swipe for actions</RNText>
+        </Pressable>
+      </Animated.View>
+    </RNView>
+  );
+}
+
+const swipeStyles = StyleSheet.create({
+  container: {
+    marginBottom: 12,
+  },
+  actionsContainer: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 8,
+  },
+  actionButton: {
+    width: 72,
+    height: '90%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  actionIcon: {
+    fontSize: 20,
+    color: '#fff',
+    marginBottom: 4,
+  },
+  actionText: {
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  cardWrapper: {
+    backgroundColor: '#1a1a1a',
   },
 });
 
@@ -226,48 +455,73 @@ interface TaskListProps {
 export default function TaskList({ filter, sort, onSortChange }: TaskListProps) {
   const allTasks = useQuery(api.tasks.listAllWithHistoryCount) ?? [];
   const toggleCompleted = useMutation(api.tasks.toggleCompleted);
+  const toggleImportant = useMutation(api.tasks.toggleImportant);
   
-  // Optimistic state: track which tasks are being toggled
-  const [optimisticToggles, setOptimisticToggles] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<Id<"tasks"> | null>(null);
   const [historyShowCompleted, setHistoryShowCompleted] = useState(false);
   const [historyShowIncomplete, setHistoryShowIncomplete] = useState(false);
+  const [historyShowImportant, setHistoryShowImportant] = useState(false);
+  const [historyShowNotImportant, setHistoryShowNotImportant] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [showSortPicker, setShowSortPicker] = useState(false);
   
-  // Look up the selected task from fresh query data
   const selectedTask = selectedTaskId ? allTasks.find(t => t._id === selectedTaskId) ?? null : null;
-
-  const handleToggle = useCallback(async (taskId: Id<"tasks">) => {
-    // Add to optimistic toggles immediately
-    setOptimisticToggles(prev => new Set(prev).add(taskId));
-    
-    try {
-      await toggleCompleted({ id: taskId });
-    } finally {
-      // Remove from optimistic toggles after mutation completes
-      setOptimisticToggles(prev => {
-        const next = new Set(prev);
-        next.delete(taskId);
-        return next;
-      });
+  
+  // Animation for side panel
+  const slideAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    if (selectedTaskId) {
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
+  }, [selectedTaskId]);
+  
+  const closePanel = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: SCREEN_WIDTH,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setSelectedTaskId(null);
+    });
+  }, []);
+
+  const handleToggleComplete = useCallback(async (taskId: Id<"tasks">) => {
+    await toggleCompleted({ id: taskId });
   }, [toggleCompleted]);
+
+  const handleToggleImportant = useCallback(async (taskId: Id<"tasks">) => {
+    await toggleImportant({ id: taskId });
+  }, [toggleImportant]);
 
   // Sort and filter tasks
   const sortedAndFilteredTasks = useMemo(() => {
-    // First filter
     let filtered = allTasks.filter(task => {
-      const isOptimisticallyToggled = optimisticToggles.has(task._id);
-      const displayCompleted = isOptimisticallyToggled ? !task.isCompleted : task.isCompleted;
-      
       if (filter === 'all') return true;
-      if (filter === 'completed') return displayCompleted;
-      if (filter === 'incomplete') return !displayCompleted;
+      if (filter === 'completed') return task.isCompleted;
+      if (filter === 'incomplete') return !task.isCompleted;
       return true;
     });
     
-    // Then sort
     return filtered.sort((a, b) => {
       switch (sort) {
         case 'latest':
@@ -290,9 +544,8 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
           return 0;
       }
     });
-  }, [allTasks, filter, sort, optimisticToggles]);
+  }, [allTasks, filter, sort]);
 
-  // Paginate for infinite scroll
   const visibleTasks = sortedAndFilteredTasks.slice(0, visibleCount);
   const hasMore = visibleCount < sortedAndFilteredTasks.length;
 
@@ -311,9 +564,7 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
   };
 
   const currentSortLabel = sortOptions.find(o => o.value === sort)?.label ?? 'Sort';
-
   const isLoading = allTasks.length === 0 && !allTasks;
-  const isLoadingMore = false;
 
   if (isLoading) {
     return (
@@ -324,17 +575,10 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
     );
   }
 
-  const handleDrawerToggle = async () => {
-    if (selectedTask) {
-      await toggleCompleted({ id: selectedTask._id });
-    }
-  };
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{getTitle()}</Text>
       
-      {/* Sort Picker */}
       <Pressable 
         style={styles.sortButton}
         onPress={() => setShowSortPicker(true)}
@@ -345,48 +589,27 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
       </Pressable>
       
       <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
+      
       <FlatList
         data={visibleTasks}
         keyExtractor={(item) => item._id}
         contentContainerStyle={styles.listContent}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
-        renderItem={({ item }) => {
-          // Calculate display state with optimistic update
-          const isOptimisticallyToggled = optimisticToggles.has(item._id);
-          const displayCompleted = isOptimisticallyToggled ? !item.isCompleted : item.isCompleted;
-          
-          return (
-            <Pressable
-              style={({ pressed }) => [
-                styles.taskCard,
-                displayCompleted ? styles.taskCompleted : styles.taskIncomplete,
-                pressed && styles.taskPressed,
-              ]}
-              onPress={() => handleToggle(item._id)}
-              onLongPress={() => setSelectedTaskId(item._id)}
-              delayLongPress={400}
-            >
-              <Text style={styles.taskText}>{item.text}</Text>
-              {item.description && (
-                <Text style={styles.taskDescription} numberOfLines={2}>
-                  {item.description}
-                </Text>
-              )}
-              <Text style={styles.taskHint}>Hold for details</Text>
-            </Pressable>
-          );
-        }}
+        renderItem={({ item }) => (
+          <SwipeableTaskItem
+            item={item}
+            onPress={() => setSelectedTaskId(item._id)}
+            onToggleComplete={() => handleToggleComplete(item._id)}
+            onToggleImportant={() => handleToggleImportant(item._id)}
+          />
+        )}
         ListEmptyComponent={
           <Text style={styles.emptyText}>No tasks found</Text>
         }
         ListFooterComponent={
           hasMore ? (
-            <Pressable style={styles.loadMoreButton} onPress={handleLoadMore}>
-              <RNText style={styles.loadMoreText}>
-                Load More ({sortedAndFilteredTasks.length - visibleCount} remaining)
-              </RNText>
-            </Pressable>
+            <RNText style={styles.allLoadedText}>Loading more...</RNText>
           ) : visibleTasks.length > 0 ? (
             <RNText style={styles.allLoadedText}>All tasks loaded</RNText>
           ) : null
@@ -434,24 +657,29 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
         </Pressable>
       </Modal>
 
-      {/* Bottom Sheet Modal */}
-      <Modal
-        visible={!!selectedTask}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedTaskId(null)}
-      >
-        <RNView style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setSelectedTaskId(null)} />
-          <RNView style={styles.bottomSheet}>
+      {/* Right Side Panel - Custom Animation */}
+      {selectedTaskId && (
+        <RNView style={StyleSheet.absoluteFill}>
+          <TouchableWithoutFeedback onPress={closePanel}>
+            <Animated.View style={[styles.sidePanelBackdrop, { opacity: fadeAnim }]} />
+          </TouchableWithoutFeedback>
+          <Animated.View style={[styles.sidePanel, { transform: [{ translateX: slideAnim }] }]}>
             {selectedTask && (
-              <>
-                <RNView style={styles.sheetHandle} />
+              <ScrollView style={styles.sidePanelScroll} showsVerticalScrollIndicator={false}>
+                {/* Close button */}
+                <Pressable style={styles.closeButton} onPress={closePanel}>
+                  <RNText style={styles.closeButtonText}>✕</RNText>
+                </Pressable>
                 
                 <RNText style={styles.sheetTitle}>{selectedTask.text}</RNText>
-                <RNText style={styles.sheetStatus}>
-                  {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
-                </RNText>
+                <RNView style={styles.statusRow}>
+                  <RNText style={styles.sheetStatus}>
+                    {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
+                  </RNText>
+                  {selectedTask.isImportant && (
+                    <RNText style={styles.importantBadge}>★ Important</RNText>
+                  )}
+                </RNView>
                 
                 <RNView style={styles.sheetSection}>
                   <RNText style={styles.sheetLabel}>Description</RNText>
@@ -478,42 +706,57 @@ export default function TaskList({ filter, sort, onSortChange }: TaskListProps) 
                 </RNView>
 
                 <RNView style={styles.sheetHistorySection}>
-                  <RNText style={styles.sheetLabel}>Status History</RNText>
+                  <RNText style={styles.sheetLabel}>Changes</RNText>
                   <HistoryFilterChips
                     showCompleted={historyShowCompleted}
                     showIncomplete={historyShowIncomplete}
+                    showImportant={historyShowImportant}
+                    showNotImportant={historyShowNotImportant}
                     onToggleCompleted={() => setHistoryShowCompleted(!historyShowCompleted)}
                     onToggleIncomplete={() => setHistoryShowIncomplete(!historyShowIncomplete)}
+                    onToggleImportant={() => setHistoryShowImportant(!historyShowImportant)}
+                    onToggleNotImportant={() => setHistoryShowNotImportant(!historyShowNotImportant)}
                   />
-                  <ScrollView 
-                    style={styles.historyScrollView}
-                    showsVerticalScrollIndicator={false}
-                    nestedScrollEnabled={true}
-                  >
-                    <TaskHistory 
-                      taskId={selectedTask._id}
-                      showCompleted={historyShowCompleted}
-                      showIncomplete={historyShowIncomplete}
-                    />
-                  </ScrollView>
+                  <TaskHistory 
+                    taskId={selectedTask._id}
+                    showCompleted={historyShowCompleted}
+                    showIncomplete={historyShowIncomplete}
+                    showImportant={historyShowImportant}
+                    showNotImportant={historyShowNotImportant}
+                  />
                 </RNView>
                 
-                <Pressable
-                  style={[
-                    styles.sheetButton,
-                    selectedTask.isCompleted ? styles.sheetButtonIncomplete : styles.sheetButtonComplete
-                  ]}
-                  onPress={handleDrawerToggle}
-                >
-                  <RNText style={styles.sheetButtonText}>
-                    {selectedTask.isCompleted ? "Mark as Incomplete" : "Mark as Complete"}
-                  </RNText>
-                </Pressable>
-              </>
+                {/* Action buttons */}
+                <RNView style={styles.actionButtons}>
+                  <Pressable
+                    style={[
+                      styles.sheetButton,
+                      selectedTask.isImportant ? styles.sheetButtonInactive : styles.sheetButtonImportant
+                    ]}
+                    onPress={() => toggleImportant({ id: selectedTask._id })}
+                  >
+                    <RNText style={styles.sheetButtonText}>
+                      {selectedTask.isImportant ? "☆ Remove Importance" : "★ Mark Important"}
+                    </RNText>
+                  </Pressable>
+                  
+                  <Pressable
+                    style={[
+                      styles.sheetButton,
+                      selectedTask.isCompleted ? styles.sheetButtonInactive : styles.sheetButtonComplete
+                    ]}
+                    onPress={() => toggleCompleted({ id: selectedTask._id })}
+                  >
+                    <RNText style={styles.sheetButtonText}>
+                      {selectedTask.isCompleted ? "○ Mark Incomplete" : "✓ Mark Complete"}
+                    </RNText>
+                  </Pressable>
+                </RNView>
+              </ScrollView>
             )}
-          </RNView>
+          </Animated.View>
         </RNView>
-      </Modal>
+      )}
     </View>
   );
 }
@@ -564,34 +807,59 @@ const styles = StyleSheet.create({
     width: 320,
     padding: 16,
     borderRadius: 12,
-    marginBottom: 12,
-  },
-  taskCompleted: {
-    backgroundColor: '#16a34a',
   },
   taskIncomplete: {
     backgroundColor: '#404040',
   },
-  taskPressed: {
+  taskCompletedDimmed: {
     opacity: 0.7,
-    transform: [{ scale: 0.98 }],
+  },
+  taskImportant: {
+    borderWidth: 2,
+    borderColor: '#f59e0b',
+  },
+  taskHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  taskStatusIcon: {
+    fontSize: 18,
+    color: '#888',
+    marginRight: 8,
+  },
+  taskStatusIconCompleted: {
+    color: '#4ade80',
   },
   taskText: {
+    flex: 1,
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 4,
+  },
+  taskTextCompleted: {
+    color: '#aaa',
+  },
+  taskImportanceIcon: {
+    fontSize: 18,
+    color: '#555',
+    marginLeft: 8,
+  },
+  taskImportanceIconActive: {
+    color: '#f59e0b',
   },
   taskDescription: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.6)',
     marginBottom: 6,
     lineHeight: 18,
+    marginLeft: 26,
   },
   taskHint: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.3)',
     marginTop: 4,
+    marginLeft: 26,
   },
   loadingText: {
     marginTop: 16,
@@ -603,64 +871,69 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 40,
   },
-  footerLoader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
+  allLoadedText: {
+    color: '#666',
+    fontSize: 12,
+    textAlign: 'center',
+    marginVertical: 16,
   },
-  loadingMoreText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#888',
-  },
-  // Bottom Sheet Styles
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalBackdrop: {
+  // Side Panel Styles
+  sidePanelBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  bottomSheet: {
+  sidePanel: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: SCREEN_WIDTH * 0.85,
+    maxWidth: 400,
     backgroundColor: '#1a1a1a',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 60,
+    paddingHorizontal: 20,
     paddingBottom: 40,
-    height: Dimensions.get('window').height * 0.85,
   },
-  sheetHistorySection: {
-    marginTop: 16,
+  sidePanelScroll: {
     flex: 1,
   },
-  historyScrollView: {
-    flex: 1,
+  closeButton: {
+    position: 'absolute',
+    top: -40,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#555',
-    borderRadius: 2,
-    alignSelf: 'center',
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     marginBottom: 20,
   },
   sheetTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   sheetStatus: {
     fontSize: 14,
     color: '#888',
-    marginBottom: 20,
+  },
+  importantBadge: {
+    fontSize: 14,
+    color: '#f59e0b',
   },
   sheetSection: {
     marginBottom: 16,
-    marginTop: 16,
   },
   sheetLabel: {
     fontSize: 12,
@@ -694,8 +967,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
   },
+  sheetHistorySection: {
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  actionButtons: {
+    gap: 12,
+    marginTop: 20,
+    marginBottom: 40,
+  },
   sheetButton: {
-    marginTop: 24,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -703,7 +984,10 @@ const styles = StyleSheet.create({
   sheetButtonComplete: {
     backgroundColor: '#16a34a',
   },
-  sheetButtonIncomplete: {
+  sheetButtonImportant: {
+    backgroundColor: '#f59e0b',
+  },
+  sheetButtonInactive: {
     backgroundColor: '#404040',
   },
   sheetButtonText: {
@@ -755,25 +1039,5 @@ const styles = StyleSheet.create({
     color: '#16a34a',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  // Load More Styles
-  loadMoreButton: {
-    backgroundColor: '#333',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginVertical: 16,
-    alignSelf: 'center',
-  },
-  loadMoreText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  allLoadedText: {
-    color: '#666',
-    fontSize: 12,
-    textAlign: 'center',
-    marginVertical: 16,
   },
 });
