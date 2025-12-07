@@ -1,7 +1,7 @@
-import { StyleSheet, FlatList, Pressable, ActivityIndicator, Modal, View as RNView, Text as RNText, ScrollView, Dimensions, Animated, PanResponder, TouchableWithoutFeedback } from 'react-native';
+import { StyleSheet, FlatList, Pressable, ActivityIndicator, Modal, View as RNView, Text as RNText, ScrollView, Dimensions, Animated, PanResponder } from 'react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from 'convex/_generated/api';
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { Id } from 'convex/_generated/dataModel';
 
 import { Text, View } from '@/components/Themed';
@@ -98,10 +98,10 @@ function HistoryFilterChips({
         ]}
       >
         <RNText style={[
-          historyStyles.chipText,
+          historyStyles.chipIcon,
           showCompleted ? historyStyles.chipTextActive : historyStyles.chipTextInactive
         ]}>
-          ✓ Completed
+          ✓
         </RNText>
       </Pressable>
       <Pressable
@@ -112,10 +112,10 @@ function HistoryFilterChips({
         ]}
       >
         <RNText style={[
-          historyStyles.chipText,
+          historyStyles.chipIcon,
           showIncomplete ? historyStyles.chipTextActive : historyStyles.chipTextInactive
         ]}>
-          ○ Incomplete
+          ○
         </RNText>
       </Pressable>
       <Pressable
@@ -126,10 +126,10 @@ function HistoryFilterChips({
         ]}
       >
         <RNText style={[
-          historyStyles.chipText,
+          historyStyles.chipIcon,
           showImportant ? historyStyles.chipTextActive : historyStyles.chipTextInactive
         ]}>
-          ★ Important
+          ★
         </RNText>
       </Pressable>
       <Pressable
@@ -140,10 +140,10 @@ function HistoryFilterChips({
         ]}
       >
         <RNText style={[
-          historyStyles.chipText,
+          historyStyles.chipIcon,
           showNotImportant ? historyStyles.chipTextActive : historyStyles.chipTextInactive
         ]}>
-          ☆ Not Important
+          ☆
         </RNText>
       </Pressable>
     </RNView>
@@ -228,12 +228,14 @@ const historyStyles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 12,
   },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
+    minWidth: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chipInactive: {
     backgroundColor: '#333',
@@ -246,6 +248,10 @@ const historyStyles = StyleSheet.create({
   },
   chipActiveImportant: {
     backgroundColor: '#f59e0b',
+  },
+  chipIcon: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   chipText: {
     fontSize: 12,
@@ -469,44 +475,6 @@ export default function TaskList({ filter, sort, onSortChange, durationFilter = 
   const [showSortPicker, setShowSortPicker] = useState(false);
   
   const selectedTask = selectedTaskId ? allTasks.find(t => t._id === selectedTaskId) ?? null : null;
-  
-  // Animation for side panel
-  const slideAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  
-  useEffect(() => {
-    if (selectedTaskId) {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [selectedTaskId]);
-  
-  const closePanel = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: SCREEN_WIDTH,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setSelectedTaskId(null);
-    });
-  }, []);
 
   const handleToggleComplete = useCallback(async (taskId: Id<"tasks">) => {
     await toggleCompleted({ id: taskId });
@@ -712,56 +680,59 @@ export default function TaskList({ filter, sort, onSortChange, durationFilter = 
         </Pressable>
       </Modal>
 
-      {/* Right Side Panel - Custom Animation */}
-      {selectedTaskId && (
-        <RNView style={StyleSheet.absoluteFill}>
-          <TouchableWithoutFeedback onPress={closePanel}>
-            <Animated.View style={[styles.sidePanelBackdrop, { opacity: fadeAnim }]} />
-          </TouchableWithoutFeedback>
-          <Animated.View style={[styles.sidePanel, { transform: [{ translateX: slideAnim }] }]}>
-            {selectedTask && (
-              <ScrollView style={styles.sidePanelScroll} showsVerticalScrollIndicator={false}>
-                {/* Close button */}
-                <Pressable style={styles.closeButton} onPress={closePanel}>
-                  <RNText style={styles.closeButtonText}>✕</RNText>
-                </Pressable>
-                
-                <RNText style={styles.sheetTitle}>{selectedTask.text}</RNText>
-                <RNView style={styles.statusRow}>
-                  <RNText style={styles.sheetStatus}>
-                    {selectedTask.isCompleted ? "✓ Completed" : "○ Incomplete"}
-                  </RNText>
-                  {selectedTask.isImportant && (
-                    <RNText style={styles.importantBadge}>★ Important</RNText>
-                  )}
-                </RNView>
-                
-                <RNView style={styles.sheetSection}>
-                  <RNText style={styles.sheetLabel}>Description</RNText>
-                  <RNText style={styles.sheetDescription}>
-                    {selectedTask.description || "No description available."}
-                  </RNText>
-                </RNView>
-                
-                <RNView style={styles.sheetDivider} />
-                
-                <RNView style={styles.sheetRow}>
-                  <RNText style={styles.sheetRowLabel}>Duration</RNText>
-                  <RNText style={styles.sheetRowValue}>{formatDuration(selectedTask.duration)}</RNText>
-                </RNView>
-                
-                <RNView style={styles.sheetRow}>
-                  <RNText style={styles.sheetRowLabel}>Created</RNText>
-                  <RNText style={styles.sheetRowValue}>{formatRelativeTime(selectedTask.createdAt)}</RNText>
-                </RNView>
-                
-                <RNView style={styles.sheetRow}>
-                  <RNText style={styles.sheetRowLabel}>Last Updated</RNText>
-                  <RNText style={styles.sheetRowValue}>{formatRelativeTime(selectedTask.updatedAt)}</RNText>
-                </RNView>
+      {/* Full Screen Task Detail View */}
+      <Modal
+        visible={!!selectedTaskId}
+        animationType="slide"
+        onRequestClose={() => setSelectedTaskId(null)}
+      >
+        {selectedTask && (
+          <RNView style={styles.fullScreenContainer}>
+            {/* Header with close button */}
+            <RNView style={styles.fullScreenHeader}>
+              <Pressable style={styles.closeButtonFull} onPress={() => setSelectedTaskId(null)}>
+                <RNText style={styles.closeButtonText}>✕</RNText>
+              </Pressable>
+              <RNText style={styles.fullScreenTitle} numberOfLines={1} ellipsizeMode="tail">{selectedTask.text}</RNText>
+              <RNView style={styles.headerIndicators}>
+                <RNText style={selectedTask.isImportant ? styles.headerImportantIcon : styles.headerNotImportantIcon}>
+                  {selectedTask.isImportant ? "★" : "☆"}
+                </RNText>
+                <RNText style={selectedTask.isCompleted ? styles.headerStatusIconCompleted : styles.headerStatusIcon}>
+                  {selectedTask.isCompleted ? "✓" : "○"}
+                </RNText>
+              </RNView>
+            </RNView>
+            
+            {/* Fixed content */}
+            <RNView style={styles.fullScreenFixedContent}>
+              <RNView style={styles.sheetSection}>
+                <RNText style={styles.sheetLabel}>Description</RNText>
+                <RNText style={styles.sheetDescription}>
+                  {selectedTask.description || "No description available."}
+                </RNText>
+              </RNView>
+              
+              <RNView style={styles.sheetDivider} />
+              
+              <RNView style={styles.sheetRow}>
+                <RNText style={styles.sheetRowLabel}>Duration</RNText>
+                <RNText style={styles.sheetRowValue}>{formatDuration(selectedTask.duration)}</RNText>
+              </RNView>
+              
+              <RNView style={styles.sheetRow}>
+                <RNText style={styles.sheetRowLabel}>Created</RNText>
+                <RNText style={styles.sheetRowValue}>{formatRelativeTime(selectedTask.createdAt)}</RNText>
+              </RNView>
+              
+              <RNView style={styles.sheetRow}>
+                <RNText style={styles.sheetRowLabel}>Last Updated</RNText>
+                <RNText style={styles.sheetRowValue}>{formatRelativeTime(selectedTask.updatedAt)}</RNText>
+              </RNView>
 
-                <RNView style={styles.sheetHistorySection}>
-                  <RNText style={styles.sheetLabel}>Changes</RNText>
+              <RNView style={styles.sheetHistorySection}>
+                <RNView style={styles.sheetHistoryHeader}>
+                  <RNText style={styles.sheetLabelInHeader}>Changes</RNText>
                   <HistoryFilterChips
                     showCompleted={historyShowCompleted}
                     showIncomplete={historyShowIncomplete}
@@ -772,46 +743,54 @@ export default function TaskList({ filter, sort, onSortChange, durationFilter = 
                     onToggleImportant={() => setHistoryShowImportant(!historyShowImportant)}
                     onToggleNotImportant={() => setHistoryShowNotImportant(!historyShowNotImportant)}
                   />
-                  <TaskHistory 
-                    taskId={selectedTask._id}
-                    showCompleted={historyShowCompleted}
-                    showIncomplete={historyShowIncomplete}
-                    showImportant={historyShowImportant}
-                    showNotImportant={historyShowNotImportant}
-                  />
                 </RNView>
-                
-                {/* Action buttons */}
-                <RNView style={styles.actionButtons}>
-                  <Pressable
-                    style={[
-                      styles.sheetButton,
-                      selectedTask.isImportant ? styles.sheetButtonInactive : styles.sheetButtonImportant
-                    ]}
-                    onPress={() => toggleImportant({ id: selectedTask._id })}
-                  >
-                    <RNText style={styles.sheetButtonText}>
-                      {selectedTask.isImportant ? "☆ Remove Importance" : "★ Mark Important"}
-                    </RNText>
-                  </Pressable>
-                  
-                  <Pressable
-                    style={[
-                      styles.sheetButton,
-                      selectedTask.isCompleted ? styles.sheetButtonInactive : styles.sheetButtonComplete
-                    ]}
-                    onPress={() => toggleCompleted({ id: selectedTask._id })}
-                  >
-                    <RNText style={styles.sheetButtonText}>
-                      {selectedTask.isCompleted ? "○ Mark Incomplete" : "✓ Mark Complete"}
-                    </RNText>
-                  </Pressable>
-                </RNView>
-              </ScrollView>
-            )}
-          </Animated.View>
-        </RNView>
-      )}
+              </RNView>
+            </RNView>
+            
+            {/* Scrollable history list only */}
+            <ScrollView 
+              style={styles.fullScreenHistoryScroll} 
+              contentContainerStyle={styles.fullScreenHistoryScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <TaskHistory 
+                taskId={selectedTask._id}
+                showCompleted={historyShowCompleted}
+                showIncomplete={historyShowIncomplete}
+                showImportant={historyShowImportant}
+                showNotImportant={historyShowNotImportant}
+              />
+            </ScrollView>
+            
+            {/* Fixed bottom buttons */}
+            <RNView style={styles.fullScreenButtons}>
+              <Pressable
+                style={[
+                  styles.sheetButton,
+                  selectedTask.isImportant ? styles.sheetButtonInactive : styles.sheetButtonImportant
+                ]}
+                onPress={() => toggleImportant({ id: selectedTask._id })}
+              >
+                <RNText style={styles.sheetButtonText}>
+                  {selectedTask.isImportant ? "☆ Remove Importance" : "★ Mark Important"}
+                </RNText>
+              </Pressable>
+              
+              <Pressable
+                style={[
+                  styles.sheetButton,
+                  selectedTask.isCompleted ? styles.sheetButtonInactive : styles.sheetButtonComplete
+                ]}
+                onPress={() => toggleCompleted({ id: selectedTask._id })}
+              >
+                <RNText style={styles.sheetButtonText}>
+                  {selectedTask.isCompleted ? "○ Mark Incomplete" : "✓ Mark Complete"}
+                </RNText>
+              </Pressable>
+            </RNView>
+          </RNView>
+        )}
+      </Modal>
     </View>
   );
 }
@@ -956,40 +935,81 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginVertical: 16,
   },
-  // Side Panel Styles
-  sidePanelBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sidePanel: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: SCREEN_WIDTH * 0.85,
-    maxWidth: 400,
+  // Full Screen Styles
+  fullScreenContainer: {
+    flex: 1,
     backgroundColor: '#1a1a1a',
+  },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingTop: 60,
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
   },
-  sidePanelScroll: {
-    flex: 1,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: -40,
-    right: 0,
+  closeButtonFull: {
     width: 32,
     height: 32,
     borderRadius: 16,
     backgroundColor: '#333',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
   closeButtonText: {
     color: '#fff',
     fontSize: 16,
+  },
+  fullScreenTitle: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginRight: 12,
+  },
+  headerIndicators: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerImportantIcon: {
+    fontSize: 18,
+    color: '#f59e0b',
+  },
+  headerNotImportantIcon: {
+    fontSize: 18,
+    color: '#666',
+  },
+  headerStatusIcon: {
+    fontSize: 18,
+    color: '#888',
+  },
+  headerStatusIconCompleted: {
+    fontSize: 18,
+    color: '#16a34a',
+  },
+  fullScreenFixedContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  fullScreenHistoryScroll: {
+    flex: 1,
+  },
+  fullScreenHistoryScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
+  fullScreenButtons: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 40,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    backgroundColor: '#1a1a1a',
   },
   statusRow: {
     flexDirection: 'row',
@@ -1011,6 +1031,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#f59e0b',
   },
+  notImportantBadge: {
+    fontSize: 14,
+    color: '#888',
+  },
   sheetSection: {
     marginBottom: 16,
   },
@@ -1018,6 +1042,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sheetLabelInHeader: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 0,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -1029,7 +1060,8 @@ const styles = StyleSheet.create({
   sheetDivider: {
     height: 1,
     backgroundColor: '#333',
-    marginVertical: 16,
+    marginTop: 8,
+    marginBottom: 8,
   },
   sheetRow: {
     flexDirection: 'row',
@@ -1039,16 +1071,22 @@ const styles = StyleSheet.create({
     borderBottomColor: '#333',
   },
   sheetRowLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#888',
   },
   sheetRowValue: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#fff',
   },
   sheetHistorySection: {
     marginTop: 20,
-    marginBottom: 20,
+    marginBottom: 0,
+  },
+  sheetHistoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
   actionButtons: {
     gap: 12,
@@ -1056,7 +1094,7 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   sheetButton: {
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderRadius: 12,
     alignItems: 'center',
   },
@@ -1071,7 +1109,7 @@ const styles = StyleSheet.create({
   },
   sheetButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   // Sort Modal Styles
