@@ -808,7 +808,7 @@ function App() {
                           : sort === 'quickest' || sort === 'longest'
                           ? formatDuration(task.duration)
                           : sort === 'frequent' || sort === 'unfrequent'
-                          ? `${task.historyCount} status change${task.historyCount !== 1 ? 's' : ''}`
+                          ? `${task.historyCount} change${task.historyCount !== 1 ? 's' : ''}`
                           : formatRelativeTime(task.updatedAt)}
                       </span>
                       <Button
