@@ -763,7 +763,9 @@ function App() {
                       >
                         {task.isCompleted ? '✓' : '○'}
                       </span>
-                      <h3 className={`text-lg font-semibold leading-snug ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
+                      <h3 className={`text-lg font-semibold leading-snug ${
+                        viewMode === 'compact' ? 'line-clamp-1' : ''
+                      } ${task.isCompleted ? 'text-neutral-400' : 'text-white'}`}>
                         {task.text}
                       </h3>
                     </div>
@@ -777,7 +779,9 @@ function App() {
                       {task.isImportant ? '★' : '☆'}
                     </span>
                   </div>
-                  <p className={`text-sm leading-relaxed mb-4 flex-1 ${
+                  <p className={`text-sm leading-relaxed ${
+                    viewMode === 'compact' ? 'line-clamp-2 mb-2' : 'mb-4 flex-1'
+                  } ${
                     task.isCompleted ? "text-neutral-500" : "text-neutral-400"
                   }`}>
                     {task.description || "No description"}
