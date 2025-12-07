@@ -442,15 +442,6 @@ export default function TaskList({ filter, sort, onSortChange, durationFilter = 
     }
   }, [hasMore]);
 
-  const getTitle = () => {
-    switch (filter) {
-      case 'all': return 'All Tasks';
-      case 'completed': return 'Completed';
-      case 'incomplete': return 'Incomplete';
-      case 'important': return 'Important';
-    }
-  };
-
   const currentSortLabel = sortOptions.find(o => o.value === sort)?.label ?? 'Sort';
   const isLoading = allTasks.length === 0 && !allTasks;
   
@@ -488,8 +479,6 @@ export default function TaskList({ filter, sort, onSortChange, durationFilter = 
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{getTitle()}</Text>
-      
       <RNView style={styles.filtersRow}>
         <Pressable 
           style={styles.sortButton}
@@ -712,10 +701,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingTop: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
   },
   filtersRow: {
     flexDirection: 'row',
