@@ -5,6 +5,7 @@ export default defineSchema({
   users: defineTable({
     name: v.string(),
     image: v.optional(v.string()), // Base64-encoded image
+    color: v.optional(v.string()), // Hex color code
   }),
   tasks: defineTable({
     text: v.string(),

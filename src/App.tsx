@@ -9,7 +9,9 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { Card, CardContent } from "@/components/ui/card";
 import { ToastContainer, Toast } from "@/components/ui/toast";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type ToastType = 'completed' | 'incomplete' | 'important' | 'not-important';
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
@@ -36,6 +38,9 @@ type DurationFilterType = 'all' | 'quick' | 'long';
 type ImportanceFilterType = 'all' | 'important' | 'not-important';
 type SortType = 'latest' | 'inactive' | 'newest' | 'oldest' | 'frequent' | 'unfrequent' | 'quickest' | 'longest';
 type ViewMode = 'compact' | 'extended' | 'list';
+type TabType = 'tasks' | 'stats';
+type StatsSortColumn = 'user' | 'completed' | 'incomplete' | 'important' | 'changes' | 'lastActive' | 'inactive' | 'short' | 'long';
+type SortDirection = 'asc' | 'desc';
 
 function formatDuration(minutes: number | undefined): string {
   if (!minutes) return "Unknown";
@@ -44,6 +49,32 @@ function formatDuration(minutes: number | undefined): string {
   const mins = minutes % 60;
   if (mins === 0) return `${hours}h`;
   return `${hours}h ${mins}m`;
+}
+
+function periodToDays(period: string): number {
+  switch (period) {
+    case '5 days': return 5;
+    case '10 days': return 10;
+    case '15 days': return 15;
+    case '1 month': return 30;
+    case '2 months': return 60;
+    case '3 months': return 90;
+    case '6 months': return 180;
+    case '1 year': return 365;
+    default: return 5;
+  }
+}
+
+function calculateIntervalCount(days: number): number {
+  // Return a number between 5 and 12 that makes sense for the period
+  if (days <= 5) return 5;
+  if (days <= 10) return 6;
+  if (days <= 15) return 7;
+  if (days <= 30) return 8;
+  if (days <= 60) return 9;
+  if (days <= 90) return 10;
+  if (days <= 180) return 11;
+  return 12; // 365 days
 }
 
 function formatRelativeTime(timestamp: number | undefined): string {
@@ -184,13 +215,16 @@ function TaskHistory({ taskId, showCompleted, showIncomplete, showImportant, sho
     return false;
   });
 
-  if (filteredHistory.length === 0) {
+  // Sort by changedAt descending (latest first)
+  const sortedHistory = [...filteredHistory].sort((a, b) => b.changedAt - a.changedAt);
+
+  if (sortedHistory.length === 0) {
     return <div className="text-neutral-500 text-sm">No matching entries.</div>;
   }
 
   return (
     <div className="space-y-2">
-      {filteredHistory.map((entry) => {
+      {sortedHistory.map((entry) => {
         const isCompletionChange = !entry.changeType || entry.changeType === "completion";
         const isImportanceChange = entry.changeType === "importance";
         
@@ -228,6 +262,7 @@ function getInitialParams() {
   const importanceFilter = params.get('importance') as ImportanceFilterType | null;
   const sort = params.get('sort') as SortType | null;
   const view = params.get('view') as ViewMode | null;
+  const tab = params.get('tab') as TabType | null;
   const usersParam = params.get('users');
   const selectedUsers = usersParam ? usersParam.split(',').filter(Boolean) : [];
   
@@ -238,6 +273,7 @@ function getInitialParams() {
     importanceFilter: importanceFilter && ['all', 'important', 'not-important'].includes(importanceFilter) ? importanceFilter : 'all',
     sort: sort && ['latest', 'inactive', 'newest', 'oldest', 'frequent', 'unfrequent', 'quickest', 'longest'].includes(sort) ? sort : 'latest',
     viewMode: view && ['compact', 'extended', 'list'].includes(view) ? view : 'compact',
+    tab: tab && ['tasks', 'stats'].includes(tab) ? tab : 'tasks',
     selectedUsers: new Set(selectedUsers),
   };
 }
@@ -250,6 +286,9 @@ function App() {
   const [importanceFilter, setImportanceFilter] = useState<ImportanceFilterType>(initialParams.importanceFilter);
   const [sort, setSort] = useState<SortType>(initialParams.sort);
   const [viewMode, setViewMode] = useState<ViewMode>(initialParams.viewMode);
+  const [activeTab, setActiveTab] = useState<TabType>(initialParams.tab);
+  const [statsSortColumn, setStatsSortColumn] = useState<StatsSortColumn>('lastActive');
+  const [statsSortDirection, setStatsSortDirection] = useState<SortDirection>('desc');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -257,11 +296,100 @@ function App() {
   const [historyShowIncomplete, setHistoryShowIncomplete] = useState(false);
   const [historyShowImportant, setHistoryShowImportant] = useState(false);
   const [historyShowNotImportant, setHistoryShowNotImportant] = useState(false);
+  const [latestChangesShowCompleted, setLatestChangesShowCompleted] = useState(false);
+  const [latestChangesShowIncomplete, setLatestChangesShowIncomplete] = useState(false);
+  const [latestChangesShowImportant, setLatestChangesShowImportant] = useState(false);
+  const [latestChangesShowNotImportant, setLatestChangesShowNotImportant] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(initialParams.selectedUsers);
+  const [latestChangesCursor, setLatestChangesCursor] = useState<number | null>(null);
+  const [accumulatedChanges, setAccumulatedChanges] = useState<any[]>([]);
+  const [activityMode, setActivityMode] = useState<'delta' | 'total'>('delta');
+  const [activityPeriod, setActivityPeriod] = useState<'5 days' | '10 days' | '15 days' | '1 month' | '2 months' | '3 months' | '6 months' | '1 year'>('5 days');
   
   // Fetch all users
   const users = useQuery(api.tasks.getAllUsers);
+  
+  // Fetch latest changes (paginated)
+  const latestChangesPage = useQuery(api.tasks.getLatestChanges, {
+    limit: 15,
+    cursor: latestChangesCursor ?? undefined,
+    userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any : undefined,
+    showCompleted: latestChangesShowCompleted || undefined,
+    showIncomplete: latestChangesShowIncomplete || undefined,
+    showImportant: latestChangesShowImportant || undefined,
+    showNotImportant: latestChangesShowNotImportant || undefined,
+  });
+  
+  // Fetch changes over time for chart
+  const changesOverTime = useQuery(api.tasks.getChangesOverTime, {
+    userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any : undefined,
+    days: periodToDays(activityPeriod),
+  });
+  
+  // Reset accumulated changes when selectedUsers or filters change
+  useEffect(() => {
+    setAccumulatedChanges([]);
+    setLatestChangesCursor(null);
+    setIsLoadingMore(false);
+    lastProcessedPageRef.current = null;
+  }, [selectedUsers, latestChangesShowCompleted, latestChangesShowIncomplete, latestChangesShowImportant, latestChangesShowNotImportant]);
+  
+  // Track the last processed page to avoid duplicate processing
+  const lastProcessedPageRef = useRef<string | null>(null);
+  
+  // Accumulate changes when new page loads
+  useEffect(() => {
+    if (latestChangesPage) {
+      // Create a unique key for this page based on cursor and changes
+      const pageKey = `${latestChangesCursor ?? 'initial'}-${latestChangesPage.changes.length}`;
+      
+      // Only process if this is a new page
+      if (pageKey !== lastProcessedPageRef.current) {
+        setAccumulatedChanges(prev => {
+          // If cursor is null, this is the first page, replace all
+          if (latestChangesCursor === null) {
+            lastProcessedPageRef.current = pageKey;
+            return latestChangesPage.changes || [];
+          }
+          // Otherwise, append new changes (preserve existing during loading)
+          const existingIds = new Set(prev.map(c => c._id));
+          const newChanges = (latestChangesPage.changes || []).filter(c => !existingIds.has(c._id));
+          lastProcessedPageRef.current = pageKey;
+          return [...prev, ...newChanges];
+        });
+      }
+    }
+    // Don't clear accumulated changes when latestChangesPage is undefined (during loading)
+  }, [latestChangesPage, latestChangesCursor]);
+  
+  // Reset last processed page when selectedUsers changes
+  useEffect(() => {
+    lastProcessedPageRef.current = null;
+  }, [selectedUsers]);
+  
+  // Changes are already filtered on the server, so use accumulatedChanges directly
+  const latestChanges = accumulatedChanges;
+  const hasMoreChanges = latestChangesPage?.hasMore ?? false;
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  
+  // Track when new page data arrives to clear loading state
+  useEffect(() => {
+    if (latestChangesPage && isLoadingMore) {
+      // Check if this is a new page (not the initial load)
+      if (latestChangesCursor !== null) {
+        setIsLoadingMore(false);
+      }
+    }
+  }, [latestChangesPage, latestChangesCursor, isLoadingMore]);
+  
+  // Load more latest changes button handler
+  const loadMoreLatestChanges = useCallback(() => {
+    if (latestChangesPage?.hasMore && latestChangesPage?.nextCursor !== null && latestChangesPage?.nextCursor !== undefined) {
+      setIsLoadingMore(true);
+      setLatestChangesCursor(latestChangesPage.nextCursor);
+    }
+  }, [latestChangesPage]);
   
   // Debounce search query (400ms delay)
   useEffect(() => {
@@ -286,7 +414,7 @@ function App() {
     setVisibleCount(PAGE_SIZE);
   };
   
-  // Update URL when filters/sort/view change
+  // Update URL when filters/sort/view/tab change
   useEffect(() => {
     const params = new URLSearchParams();
     if (!showCompleted) params.set('completed', 'false');
@@ -295,6 +423,7 @@ function App() {
     if (importanceFilter !== 'all') params.set('importance', importanceFilter);
     if (sort !== 'latest') params.set('sort', sort);
     if (viewMode !== 'compact') params.set('view', viewMode);
+    if (activeTab !== 'tasks') params.set('tab', activeTab);
     if (selectedUsers.size > 0) params.set('users', Array.from(selectedUsers).join(','));
     
     const newUrl = params.toString() 
@@ -302,7 +431,7 @@ function App() {
       : window.location.pathname;
     
     window.history.replaceState({}, '', newUrl);
-  }, [showCompleted, showIncomplete, durationFilter, importanceFilter, sort, viewMode, selectedUsers]);
+  }, [showCompleted, showIncomplete, durationFilter, importanceFilter, sort, viewMode, activeTab, selectedUsers]);
   
   const allTasksQuery = useQuery(api.tasks.listAllWithHistoryCount, { 
     searchQuery: debouncedSearchQuery.trim() || undefined,
@@ -380,6 +509,128 @@ function App() {
       }
     });
   }, [allTasks, showCompleted, showIncomplete, durationFilter, importanceFilter, sort]);
+  
+  // Calculate user statistics
+  const userStats = useMemo(() => {
+    if (!users || !allTasks) return [];
+    
+    const stats = users.map(user => {
+      const userTasks = allTasks.filter(task => task.userId === user._id);
+      
+      const completed = userTasks.filter(task => task.isCompleted).length;
+      const incomplete = userTasks.filter(task => !task.isCompleted).length;
+      const important = userTasks.filter(task => task.isImportant).length;
+      const changes = userTasks.reduce((sum, task) => sum + task.historyCount, 0);
+      
+      // Find the most recent updatedAt among user's tasks
+      const lastActive = userTasks.length > 0
+        ? Math.max(...userTasks.map(task => task.updatedAt ?? 0))
+        : undefined;
+      
+      // Count inactive tasks (never updated - updatedAt is undefined or equals createdAt)
+      const inactive = userTasks.filter(task => 
+        !task.updatedAt || (task.createdAt && task.updatedAt === task.createdAt)
+      ).length;
+      
+      // Count short tasks (duration <= 15 minutes)
+      const short = userTasks.filter(task => (task.duration ?? 0) <= 15).length;
+      
+      // Count long tasks (duration > 15 minutes)
+      const long = userTasks.filter(task => (task.duration ?? 0) > 15).length;
+      
+      return {
+        user,
+        completed,
+        incomplete,
+        important,
+        changes,
+        lastActive,
+        inactive,
+        short,
+        long,
+      };
+    });
+    
+    // Sort stats based on selected column and direction
+    const sorted = [...stats].sort((a, b) => {
+      let aValue: number | string | undefined;
+      let bValue: number | string | undefined;
+      
+      switch (statsSortColumn) {
+        case 'user':
+          aValue = a.user.name.toLowerCase();
+          bValue = b.user.name.toLowerCase();
+          break;
+        case 'completed':
+          aValue = a.completed;
+          bValue = b.completed;
+          break;
+        case 'incomplete':
+          aValue = a.incomplete;
+          bValue = b.incomplete;
+          break;
+        case 'important':
+          aValue = a.important;
+          bValue = b.important;
+          break;
+        case 'changes':
+          aValue = a.changes;
+          bValue = b.changes;
+          break;
+        case 'lastActive':
+          aValue = a.lastActive ?? 0;
+          bValue = b.lastActive ?? 0;
+          break;
+        case 'inactive':
+          aValue = a.inactive;
+          bValue = b.inactive;
+          break;
+        case 'short':
+          aValue = a.short;
+          bValue = b.short;
+          break;
+        case 'long':
+          aValue = a.long;
+          bValue = b.long;
+          break;
+      }
+      
+      if (aValue === undefined && bValue === undefined) return 0;
+      if (aValue === undefined) return 1;
+      if (bValue === undefined) return -1;
+      
+      let comparison = 0;
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        comparison = aValue.localeCompare(bValue);
+      } else {
+        comparison = (aValue as number) - (bValue as number);
+      }
+      
+      return statsSortDirection === 'asc' ? comparison : -comparison;
+    });
+    
+    return sorted;
+  }, [users, allTasks, statsSortColumn, statsSortDirection]);
+  
+  // Filter user stats based on selected users
+  const filteredUserStats = useMemo(() => {
+    if (selectedUsers.size === 0) {
+      return userStats; // Show all users if none selected
+    }
+    return userStats.filter(stat => selectedUsers.has(stat.user._id));
+  }, [userStats, selectedUsers]);
+  
+  // Handle stats column sorting
+  const handleStatsSort = (column: StatsSortColumn) => {
+    if (statsSortColumn === column) {
+      // Toggle direction if same column
+      setStatsSortDirection(statsSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new column with ascending direction
+      setStatsSortColumn(column);
+      setStatsSortDirection('asc');
+    }
+  };
   
   // Paginate for infinite scroll
   const visibleTasks = sortedAndFilteredTasks.slice(0, visibleCount);
@@ -460,6 +711,29 @@ function App() {
         <div className="sticky top-0 z-10 bg-neutral-900/95 backdrop-blur-sm border-b border-neutral-800 px-6 py-6">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-3xl font-bold text-white">Konoha Task Manager</h1>
+            {/* Tabs */}
+            <div className="flex items-center gap-1 bg-neutral-800 rounded-lg p-1">
+              <button
+                onClick={() => setActiveTab('tasks')}
+                className={`px-4 py-2 rounded-md transition-colors font-medium ${
+                  activeTab === 'tasks'
+                    ? 'bg-neutral-600 text-white'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Tasks
+              </button>
+              <button
+                onClick={() => setActiveTab('stats')}
+                className={`px-4 py-2 rounded-md transition-colors font-medium ${
+                  activeTab === 'stats'
+                    ? 'bg-neutral-600 text-white'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Stats
+              </button>
+            </div>
             {/* User images */}
             {users && users.length > 0 && (
               <div className="flex items-center gap-2">
@@ -505,6 +779,7 @@ function App() {
               </div>
             )}
           </div>
+          {activeTab === 'tasks' && (
           <div className="flex flex-wrap items-center gap-3">
             {/* Status filter buttons */}
             <div className="flex gap-2">
@@ -681,10 +956,13 @@ function App() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
-        {/* Task Grid */}
+        {/* Content based on active tab */}
         <div className="px-6 py-8">
+        {activeTab === 'tasks' ? (
+        <>
         {isLoading ? (
           viewMode === 'list' ? (
             // List view skeleton
@@ -1044,6 +1322,889 @@ function App() {
               ) : null}
             </div>
           </>
+        )}
+        </>
+        ) : (
+          /* Stats Tab */
+          <div className="pt-4 pb-8">
+            {isLoading ? (
+              <>
+                {selectedUsers.size === 1 ? (
+                  /* Single User Card Skeleton */
+                  <Card className="bg-neutral-800 border-neutral-700">
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-4 flex-shrink-0">
+                          <div className="w-16 h-16 rounded-full bg-neutral-700/50 animate-pulse flex-shrink-0"></div>
+                          <div>
+                            <div className="h-7 w-32 bg-neutral-700/50 rounded animate-pulse mb-2"></div>
+                            <div className="h-4 w-40 bg-neutral-700/50 rounded animate-pulse"></div>
+                          </div>
+                        </div>
+                        <div className="flex gap-4 flex-1 flex-wrap">
+                          {[...Array(7)].map((_, index) => (
+                            <div key={index} className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                              <div className="h-3 w-16 bg-neutral-700/50 rounded animate-pulse mb-2 mx-auto"></div>
+                              <div className="h-8 w-12 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  /* Multiple Users Grid Skeleton */
+                  <Card className="bg-neutral-800 border-neutral-700">
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto" style={{ height: '570px' }}>
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="border-b border-neutral-700">
+                              <th className="text-left py-2 px-2 text-sm font-semibold text-neutral-400">User</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Complete</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Incomplete</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Important</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Changes</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Inactive</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Short</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Long</th>
+                              <th className="text-center py-2 px-2 text-sm font-semibold text-neutral-400">Last Active</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[...Array(5)].map((_, index) => (
+                              <tr key={index} className={`border-b border-neutral-800 ${index % 2 === 0 ? 'bg-neutral-800/50' : 'bg-neutral-900/50'}`}>
+                                <td className="py-2 px-2">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-neutral-700/50 animate-pulse"></div>
+                                    <div className="h-4 w-24 bg-neutral-700/50 rounded animate-pulse"></div>
+                                  </div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-8 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                                <td className="text-center py-2 px-2">
+                                  <div className="h-4 w-16 bg-neutral-700/50 rounded animate-pulse mx-auto"></div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {/* Chart and Latest Changes Cards Skeleton */}
+                <div className="flex gap-4 mt-6">
+                  {/* Activity Chart Card Skeleton */}
+                  <div className="flex-1">
+                    <Card className="bg-neutral-800 border-neutral-700">
+                      <CardContent className="pt-2 pb-3 px-3">
+                        <h3 className="text-lg font-semibold text-white mb-2 text-center">Activity</h3>
+                        <div className="h-[420px] relative">
+                          {/* Chart skeleton */}
+                          <div className="absolute bottom-0 left-0 right-0 top-0 flex flex-col">
+                            {/* Y-axis skeleton */}
+                            <div className="flex-1 flex items-end justify-start pr-2">
+                              <div className="space-y-8">
+                                {[...Array(5)].map((_, i) => (
+                                  <div key={i} className="h-3 w-8 bg-neutral-700/50 rounded animate-pulse"></div>
+                                ))}
+                              </div>
+                            </div>
+                            {/* X-axis skeleton */}
+                            <div className="h-16 flex items-end justify-around px-4 pb-2">
+                              {[...Array(5)].map((_, i) => (
+                                <div key={i} className="h-3 w-10 bg-neutral-700/50 rounded animate-pulse"></div>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Chart lines skeleton */}
+                          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 400" preserveAspectRatio="none">
+                            <defs>
+                              <linearGradient id="skeletonGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stopColor="#404040" stopOpacity="0.3" />
+                                <stop offset="100%" stopColor="#404040" stopOpacity="0.1" />
+                              </linearGradient>
+                            </defs>
+                            {[...Array(3)].map((_, lineIndex) => {
+                              const points = Array.from({ length: 5 }, (_, i) => {
+                                const x = 50 + (i * 70);
+                                const y = 350 - (Math.random() * 200 + 50);
+                                return `${x},${y}`;
+                              }).join(' ');
+                              return (
+                                <polyline
+                                  key={lineIndex}
+                                  points={points}
+                                  fill="none"
+                                  stroke="#404040"
+                                  strokeWidth="2"
+                                  strokeDasharray="5,5"
+                                  opacity="0.5"
+                                  className="animate-pulse"
+                                />
+                              );
+                            })}
+                          </svg>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  
+                  {/* Latest Changes Card Skeleton */}
+                  <div className="w-1/3 flex-shrink-0">
+                    <Card className="bg-neutral-800 border-neutral-700">
+                      <CardContent className="pt-2 pb-3 px-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-white">Latest Changes</h3>
+                          <div className="flex items-center gap-1.5">
+                            {[...Array(4)].map((_, i) => (
+                              <div key={i} className="w-7 h-7 rounded-full bg-neutral-700/50 animate-pulse"></div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 h-[420px] overflow-y-auto scrollbar-thumb-only">
+                          {[...Array(6)].map((_, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center gap-3 py-1.5 px-2 bg-neutral-700/30 rounded-lg"
+                            >
+                              <div className="w-8 h-8 rounded-full bg-neutral-700/50 animate-pulse flex-shrink-0"></div>
+                              <div className="flex-1 min-w-0">
+                                <div className="h-4 w-full bg-neutral-700/50 rounded animate-pulse mb-2"></div>
+                                <div className="flex items-center gap-2">
+                                  <div className="h-3 w-20 bg-neutral-700/50 rounded animate-pulse"></div>
+                                  <div className="h-3 w-24 bg-neutral-700/50 rounded animate-pulse"></div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              </>
+            ) : filteredUserStats.length === 0 ? (
+              <div className="flex justify-center items-center py-20">
+                <div className="text-neutral-500 text-lg">No users found</div>
+              </div>
+            ) : (
+              <>
+            {filteredUserStats.length === 1 ? (
+              /* Single User Card View */
+              (() => {
+                const stat = filteredUserStats[0];
+                return (
+                  <Card className="bg-neutral-800 border-neutral-700">
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-4 flex-shrink-0">
+                          <div className="w-16 h-16 rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0">
+                            {stat.user.image ? (
+                              <img
+                                src={`data:image/jpeg;base64,${stat.user.image}`}
+                                alt={stat.user.name}
+                                className="w-full h-full object-cover"
+                                title={stat.user.name}
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-xl">
+                                {stat.user.name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <h2 className="text-2xl font-bold text-white mb-1">{stat.user.name}</h2>
+                            <p className="text-neutral-400 text-sm">
+                              Last Active: {stat.lastActive ? formatRelativeTime(stat.lastActive) : 'Never'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-4 flex-1 flex-wrap">
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Complete</div>
+                            <div className="text-2xl font-bold text-white">{stat.completed}</div>
+                          </div>
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Incomplete</div>
+                            <div className="text-2xl font-bold text-white">{stat.incomplete}</div>
+                          </div>
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Important</div>
+                            <div className="text-2xl font-bold text-white">{stat.important}</div>
+                          </div>
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Changes</div>
+                            <div className="text-2xl font-bold text-white">{stat.changes}</div>
+                          </div>
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Inactive</div>
+                            <div className="text-2xl font-bold text-white">{stat.inactive}</div>
+                          </div>
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Short</div>
+                            <div className="text-2xl font-bold text-white">{stat.short}</div>
+                          </div>
+                          <div className="bg-neutral-700/30 rounded-lg p-4 border border-neutral-700/50 flex-1 text-center min-w-[120px]">
+                            <div className="text-xs mb-1 text-neutral-500">Long</div>
+                            <div className="text-2xl font-bold text-white">{stat.long}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })()
+            ) : (
+              /* Multiple Users Grid View */
+              <Card className="bg-neutral-800 border-neutral-700">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b border-neutral-700">
+                          <th 
+                            className="text-left py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('user')}
+                          >
+                            <div className="flex items-center gap-2">
+                              User
+                              {statsSortColumn === 'user' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('completed')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Complete
+                              {statsSortColumn === 'completed' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('incomplete')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Incomplete
+                              {statsSortColumn === 'incomplete' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('important')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Important
+                              {statsSortColumn === 'important' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('changes')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Changes
+                              {statsSortColumn === 'changes' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('inactive')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Inactive
+                              {statsSortColumn === 'inactive' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('short')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Short
+                              {statsSortColumn === 'short' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('long')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Long
+                              {statsSortColumn === 'long' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="text-center py-2 px-2 text-sm font-semibold text-neutral-400 cursor-pointer hover:text-white transition-colors select-none"
+                            onClick={() => handleStatsSort('lastActive')}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              Last Active
+                              {statsSortColumn === 'lastActive' && (
+                                <span className="text-white">
+                                  {statsSortDirection === 'asc' ? '↑' : '↓'}
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredUserStats.map((stat, index) => (
+                          <tr key={stat.user._id} className={`border-b border-neutral-800 transition-colors ${index % 2 === 0 ? 'bg-neutral-800/50' : 'bg-neutral-900/50'} hover:bg-neutral-700/50`}>
+                            <td className="py-2 px-2">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0">
+                                  {stat.user.image ? (
+                                    <img
+                                      src={`data:image/jpeg;base64,${stat.user.image}`}
+                                      alt={stat.user.name}
+                                      className="w-full h-full object-cover"
+                                      title={stat.user.name}
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-sm">
+                                      {stat.user.name.charAt(0)}
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="text-white font-medium">{stat.user.name}</span>
+                              </div>
+                            </td>
+                            <td className="text-center py-2 px-2 text-white">{stat.completed}</td>
+                            <td className="text-center py-2 px-2 text-white">{stat.incomplete}</td>
+                            <td className="text-center py-2 px-2 text-white">{stat.important}</td>
+                            <td className="text-center py-2 px-2 text-white">{stat.changes}</td>
+                            <td className="text-center py-2 px-2 text-white">{stat.inactive}</td>
+                            <td className="text-center py-2 px-2 text-white">{stat.short}</td>
+                            <td className="text-center py-2 px-2 text-white">{stat.long}</td>
+                            <td className="text-center py-2 px-2 text-neutral-400 text-sm">
+                              {stat.lastActive ? formatRelativeTime(stat.lastActive) : 'Never'}
+                            </td>
+                          </tr>
+                        ))}
+                        {/* Total Row */}
+                        {(() => {
+                          const totals = filteredUserStats.reduce((acc, stat) => ({
+                            completed: acc.completed + stat.completed,
+                            incomplete: acc.incomplete + stat.incomplete,
+                            important: acc.important + stat.important,
+                            changes: acc.changes + stat.changes,
+                            inactive: acc.inactive + stat.inactive,
+                            short: acc.short + stat.short,
+                            long: acc.long + stat.long,
+                          }), {
+                            completed: 0,
+                            incomplete: 0,
+                            important: 0,
+                            changes: 0,
+                            inactive: 0,
+                            short: 0,
+                            long: 0,
+                          });
+                          return (
+                            <tr className="border-t-2 border-neutral-700 bg-neutral-800/70">
+                              <td className="py-2 px-2">
+                                <span className="text-white font-bold">TOTAL</span>
+                              </td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.completed}</td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.incomplete}</td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.important}</td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.changes}</td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.inactive}</td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.short}</td>
+                              <td className="text-center py-2 px-2 text-white font-bold">{totals.long}</td>
+                              <td className="text-center py-2 px-2 text-neutral-400 text-sm"></td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Chart and Latest Changes Cards */}
+            <div className="flex gap-4 mt-6">
+              {/* Activity Chart Card */}
+              <div className="flex-1">
+                <Card className="bg-neutral-800 border-neutral-700">
+                  <CardContent className="pt-2 pb-3 px-3">
+                    <div className="flex items-center justify-between mb-2 relative">
+                      <h3 className="text-lg font-semibold text-white">Activity</h3>
+                      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1 bg-neutral-700/50 rounded-lg p-0.5">
+                        <button
+                          onClick={() => setActivityMode('delta')}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            activityMode === 'delta'
+                              ? 'bg-neutral-600 text-white'
+                              : 'text-neutral-400 hover:text-neutral-300'
+                          }`}
+                          title="Delta (daily changes)"
+                        >
+                          Δ Delta
+                        </button>
+                        <button
+                          onClick={() => setActivityMode('total')}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            activityMode === 'total'
+                              ? 'bg-neutral-600 text-white'
+                              : 'text-neutral-400 hover:text-neutral-300'
+                          }`}
+                          title="Total (cumulative)"
+                        >
+                          Σ Total
+                        </button>
+                      </div>
+                      <select
+                        value={activityPeriod}
+                        onChange={(e) => setActivityPeriod(e.target.value as any)}
+                        className="bg-neutral-700/50 border border-neutral-600 rounded-lg px-3 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-transparent"
+                      >
+                        <option value="5 days">5 days</option>
+                        <option value="10 days">10 days</option>
+                        <option value="15 days">15 days</option>
+                        <option value="1 month">1 month</option>
+                        <option value="2 months">2 months</option>
+                        <option value="3 months">3 months</option>
+                        <option value="6 months">6 months</option>
+                        <option value="1 year">1 year</option>
+                      </select>
+                    </div>
+                    {changesOverTime === undefined ? (
+                      <div className="h-[420px] relative">
+                        {/* Chart skeleton */}
+                        <div className="absolute bottom-0 left-0 right-0 top-0 flex flex-col">
+                          {/* Y-axis skeleton */}
+                          <div className="flex-1 flex items-end justify-start pr-2">
+                            <div className="space-y-8">
+                              {[...Array(5)].map((_, i) => (
+                                <div key={i} className="h-3 w-8 bg-neutral-700/50 rounded animate-pulse"></div>
+                              ))}
+                            </div>
+                          </div>
+                          {/* X-axis skeleton */}
+                          <div className="h-16 flex items-end justify-around px-4 pb-2">
+                            {[...Array(5)].map((_, i) => (
+                              <div key={i} className="h-3 w-10 bg-neutral-700/50 rounded animate-pulse"></div>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Chart lines skeleton */}
+                        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 400" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="skeletonGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                              <stop offset="0%" stopColor="#404040" stopOpacity="0.3" />
+                              <stop offset="100%" stopColor="#404040" stopOpacity="0.1" />
+                            </linearGradient>
+                          </defs>
+                          {[...Array(selectedUsers.size || 1)].map((_, lineIndex) => {
+                            const points = Array.from({ length: 5 }, (_, i) => {
+                              const x = 50 + (i * 70);
+                              const y = 350 - (Math.random() * 200 + 50);
+                              return `${x},${y}`;
+                            }).join(' ');
+                            return (
+                              <polyline
+                                key={lineIndex}
+                                points={points}
+                                fill="none"
+                                stroke="#404040"
+                                strokeWidth="2"
+                                strokeDasharray="5,5"
+                                opacity="0.5"
+                                className="animate-pulse"
+                              />
+                            );
+                          })}
+                        </svg>
+                      </div>
+                    ) : changesOverTime.length === 0 ? (
+                      <div className="h-[420px] flex items-center justify-center">
+                        <div className="text-neutral-500 text-sm">No data available</div>
+                      </div>
+                    ) : (() => {
+                      // Aggregate data into intervals
+                      const days = periodToDays(activityPeriod);
+                      const intervalCount = calculateIntervalCount(days);
+                      const now = Date.now();
+                      const startTime = now - (days * 24 * 60 * 60 * 1000);
+                      const intervalDuration = (now - startTime) / intervalCount;
+                      
+                      // Create intervals
+                      const intervals: Array<{ start: number; end: number; label: string; timestamp: number }> = [];
+                      for (let i = 0; i < intervalCount; i++) {
+                        const intervalStart = startTime + (i * intervalDuration);
+                        const intervalEnd = i === intervalCount - 1 ? now : startTime + ((i + 1) * intervalDuration);
+                        const intervalDate = new Date(intervalStart);
+                        const day = String(intervalDate.getDate()).padStart(2, '0');
+                        const month = String(intervalDate.getMonth() + 1).padStart(2, '0');
+                        intervals.push({
+                          start: intervalStart,
+                          end: intervalEnd,
+                          label: `${day}.${month}`,
+                          timestamp: intervalStart,
+                        });
+                      }
+                      
+                      // Aggregate data into intervals
+                      const usersToInclude = users && (selectedUsers.size > 0 
+                        ? users.filter(u => selectedUsers.has(u._id))
+                        : users) || [];
+                      
+                      let chartData = intervals.map(interval => {
+                        const formatted: any = {
+                          time: interval.label,
+                          timestamp: interval.timestamp,
+                        };
+                        
+                        // Sum all data points within this interval
+                        usersToInclude.forEach(user => {
+                          let sum = 0;
+                          changesOverTime.forEach((item: any) => {
+                            if (item.time >= interval.start && item.time < interval.end) {
+                              sum += ((item as any)[user._id] as number) || 0;
+                            }
+                          });
+                          formatted[user.name] = sum;
+                        });
+                        
+                        return formatted;
+                      });
+                      
+                      // Calculate cumulative totals if mode is "total"
+                      if (activityMode === 'total') {
+                        const cumulativeTotals: Record<string, number> = {};
+                        usersToInclude.forEach(user => {
+                          cumulativeTotals[user.name] = 0;
+                        });
+                        
+                        chartData = chartData.map((item: any) => {
+                          const newItem = { ...item };
+                          usersToInclude.forEach(user => {
+                            const intervalValue = item[user.name] || 0;
+                            cumulativeTotals[user.name] += intervalValue;
+                            newItem[user.name] = cumulativeTotals[user.name];
+                          });
+                          return newItem;
+                        });
+                      }
+                      
+                      // Get user colors
+                      const userColors: Record<string, string> = {};
+                      if (users) {
+                        const usersToInclude = selectedUsers.size > 0 
+                          ? users.filter(u => selectedUsers.has(u._id))
+                          : users;
+                        usersToInclude.forEach(user => {
+                          if (user.color) {
+                            userColors[user.name] = user.color;
+                          }
+                        });
+                      }
+                      
+                      // Default colors if user colors not set
+                      const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+                      let colorIndex = 0;
+                      
+                      return (
+                        <>
+                          <div className="h-[420px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#404040" />
+                                <XAxis 
+                                  dataKey="time" 
+                                  stroke="#9ca3af"
+                                  style={{ fontSize: '12px' }}
+                                  interval={0}
+                                  angle={-45}
+                                  textAnchor="end"
+                                  height={80}
+                                />
+                                <YAxis 
+                                  stroke="#9ca3af"
+                                  style={{ fontSize: '12px' }}
+                                  allowDecimals={false}
+                                />
+                                <Tooltip 
+                                  contentStyle={{ 
+                                    backgroundColor: '#262626', 
+                                    border: '1px solid #404040',
+                                    borderRadius: '6px',
+                                    color: '#fff'
+                                  }}
+                                />
+                                {users && (() => {
+                                  const usersToShow = selectedUsers.size > 0 
+                                    ? users.filter(u => selectedUsers.has(u._id))
+                                    : users;
+                                  
+                                  return usersToShow.map((user) => {
+                                    const color = userColors[user.name] || user.color || defaultColors[colorIndex++ % defaultColors.length];
+                                    return (
+                                      <Line
+                                        key={user._id}
+                                        type="monotone"
+                                        dataKey={user.name}
+                                        stroke={color}
+                                        strokeWidth={2}
+                                        dot={{ r: 3, fill: color }}
+                                        activeDot={{ r: 5 }}
+                                      />
+                                    );
+                                  });
+                                })()}
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          {/* User avatars legend */}
+                          <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
+                            {(() => {
+                              const usersToShow = selectedUsers.size > 0 
+                                ? users?.filter(u => selectedUsers.has(u._id))
+                                : users;
+                              
+                              return usersToShow?.map((user) => {
+                                const userColor = user.color || '#9ca3af';
+                                return (
+                                  <div
+                                    key={user._id}
+                                    className="w-8 h-8 rounded-full overflow-hidden border-2 flex-shrink-0"
+                                    style={{ borderColor: userColor }}
+                                    title={user.name}
+                                  >
+                                    {user.image ? (
+                                      <img
+                                        src={`data:image/jpeg;base64,${user.image}`}
+                                        alt={user.name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-xs">
+                                        {user.name.charAt(0)}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              </div>
+              
+              {/* Latest Changes Card */}
+              <div className="w-1/3 flex-shrink-0 h-[470px]">
+              <Card className="bg-neutral-800 border-neutral-700">
+                <CardContent className="pt-2 pb-3 px-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-lg font-semibold text-white">Latest Changes</h3>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setLatestChangesShowCompleted(!latestChangesShowCompleted)}
+                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
+                          latestChangesShowCompleted 
+                            ? "bg-green-600 text-white" 
+                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+                        }`}
+                        title="Completed"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={() => setLatestChangesShowIncomplete(!latestChangesShowIncomplete)}
+                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
+                          latestChangesShowIncomplete 
+                            ? "bg-neutral-500 text-white" 
+                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+                        }`}
+                        title="Incomplete"
+                      >
+                        ○
+                      </button>
+                      <button
+                        onClick={() => setLatestChangesShowImportant(!latestChangesShowImportant)}
+                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
+                          latestChangesShowImportant 
+                            ? "bg-amber-500 text-white" 
+                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+                        }`}
+                        title="Important"
+                      >
+                        ★
+                      </button>
+                      <button
+                        onClick={() => setLatestChangesShowNotImportant(!latestChangesShowNotImportant)}
+                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
+                          latestChangesShowNotImportant 
+                            ? "bg-neutral-500 text-white" 
+                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
+                        }`}
+                        title="Not Important"
+                      >
+                        ☆
+                      </button>
+                    </div>
+                  </div>
+                  {latestChangesPage === undefined && accumulatedChanges.length === 0 ? (
+                    <div className="space-y-1.5 h-[420px] overflow-y-auto scrollbar-thumb-only">
+                      {[...Array(6)].map((_, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-3 py-1.5 px-2 bg-neutral-700/30 rounded-lg"
+                        >
+                          {selectedUsers.size !== 1 && (
+                            <div className="w-8 h-8 rounded-full bg-neutral-700/50 animate-pulse flex-shrink-0"></div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="h-4 w-full bg-neutral-700/50 rounded animate-pulse mb-2"></div>
+                            <div className="flex items-center gap-2">
+                              <div className="h-3 w-20 bg-neutral-700/50 rounded animate-pulse"></div>
+                              <div className="h-3 w-24 bg-neutral-700/50 rounded animate-pulse"></div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : latestChanges.length === 0 ? (
+                    <div className="h-[420px] flex items-center justify-center">
+                      <div className="text-neutral-500 text-sm">No changes found</div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 h-[470px] overflow-y-auto scrollbar-thumb-only">
+                      {latestChanges.map((change) => {
+                        if (!change) return null;
+                        const isImportanceChange = change.changeType === "importance";
+                        const showAvatar = selectedUsers.size !== 1;
+                        
+                        return (
+                          <div
+                            key={change._id}
+                            className="flex items-center gap-3 py-1.5 px-2 bg-neutral-700/30 rounded-lg"
+                          >
+                            {showAvatar && change.user && (
+                              <div className="w-8 h-8 rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0">
+                                {change.user.image ? (
+                                  <img
+                                    src={`data:image/jpeg;base64,${change.user.image}`}
+                                    alt={change.user.name}
+                                    className="w-full h-full object-cover"
+                                    title={change.user.name}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-xs">
+                                    {change.user.name.charAt(0)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-white truncate" title={change.task.text}>
+                                {change.task.text}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className={
+                                  isImportanceChange 
+                                    ? (change.changedTo ? "text-amber-400 text-xs" : "text-neutral-400 text-xs")
+                                    : (change.changedTo ? "text-green-400 text-xs" : "text-neutral-400 text-xs")
+                                }>
+                                  {isImportanceChange 
+                                    ? (change.changedTo ? "★ Important" : "☆ Not Important")
+                                    : (change.changedTo ? "✓ Completed" : "○ Incomplete")
+                                  }
+                                </span>
+                                <span className="text-neutral-500 text-xs">
+                                  {formatDateTime(change.changedAt)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {/* Load More Button */}
+                      <div className="py-2 flex justify-center">
+                        {isLoadingMore ? (
+                          <div className="text-neutral-500 text-xs">Loading more...</div>
+                        ) : hasMoreChanges ? (
+                          <Button
+                            onClick={loadMoreLatestChanges}
+                            variant="outline"
+                            className="bg-neutral-700/50 border-neutral-600 text-white hover:bg-neutral-600"
+                          >
+                            Load more
+                          </Button>
+                        ) : latestChanges.length > 0 ? (
+                          <div className="text-neutral-600 text-xs">All changes loaded</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              </div>
+            </div>
+            </>
+            )}
+          </div>
         )}
         </div>
       </div>

@@ -157,6 +157,196 @@ export const getTaskHistory = query({
   },
 });
 
+export const getLatestChanges = query({
+  args: { 
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.number()), // changedAt timestamp for pagination
+    userIds: v.optional(v.array(v.id("users"))),
+    showCompleted: v.optional(v.boolean()),
+    showIncomplete: v.optional(v.boolean()),
+    showImportant: v.optional(v.boolean()),
+    showNotImportant: v.optional(v.boolean())
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 20;
+    const cursor = args.cursor ?? Date.now(); // Start from now if no cursor
+    const maxTasksToCheck = 200; // Limit tasks we check to avoid reading too much
+    
+    // Get relevant tasks first (filtered by user if needed)
+    let tasks = await ctx.db.query("tasks").collect();
+    
+    if (args.userIds && args.userIds.length > 0) {
+      tasks = tasks.filter(task => task.userId && args.userIds!.includes(task.userId));
+    }
+    
+    // Sort tasks by updatedAt descending and limit to avoid reading too much history
+    tasks.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    const recentTasks = tasks.slice(0, maxTasksToCheck);
+    
+    // Get history entries only for these recent tasks, filtered by cursor
+    const allHistory: any[] = [];
+    for (const task of recentTasks) {
+      const history = await ctx.db
+        .query("taskHistory")
+        .withIndex("by_task", (q) => q.eq("taskId", task._id))
+        .collect();
+      // Filter by cursor (only get entries before the cursor timestamp)
+      const filteredHistory = history.filter(entry => entry.changedAt < cursor);
+      allHistory.push(...filteredHistory);
+    }
+    
+    // Filter by change type if filters are provided
+    let filteredHistory = allHistory;
+    const hasAnyFilter = args.showCompleted !== undefined || args.showIncomplete !== undefined || 
+                         args.showImportant !== undefined || args.showNotImportant !== undefined;
+    
+    if (hasAnyFilter) {
+      filteredHistory = allHistory.filter(entry => {
+        const isCompletionChange = !entry.changeType || entry.changeType === "completion";
+        const isImportanceChange = entry.changeType === "importance";
+        
+        if (isCompletionChange) {
+          if (args.showCompleted && entry.changedTo) return true;
+          if (args.showIncomplete && !entry.changedTo) return true;
+        }
+        
+        if (isImportanceChange) {
+          if (args.showImportant && entry.changedTo) return true;
+          if (args.showNotImportant && !entry.changedTo) return true;
+        }
+        
+        return false;
+      });
+    }
+    
+    // Sort by changedAt descending and limit
+    filteredHistory.sort((a, b) => b.changedAt - a.changedAt);
+    const pageHistory = filteredHistory.slice(0, limit);
+    
+    // Create a map of task data for quick lookup
+    const taskMap = new Map(recentTasks.map(t => [t._id, t]));
+    
+    // Fetch user details only for the final results
+    const userIds = new Set<string>();
+    pageHistory.forEach(entry => {
+      const task = taskMap.get(entry.taskId);
+      if (task?.userId) {
+        userIds.add(task.userId);
+      }
+    });
+    
+    const usersMap = new Map();
+    for (const userId of userIds) {
+      const user = await ctx.db.get(userId as any);
+      if (user) {
+        usersMap.set(userId, user);
+      }
+    }
+    
+    // Build the result
+    const changesWithTasks = pageHistory.map((entry) => {
+      const task = taskMap.get(entry.taskId);
+      if (!task) return null;
+      
+      const user = task.userId ? usersMap.get(task.userId) : null;
+      
+      return {
+        ...entry,
+        task: {
+          _id: task._id,
+          text: task.text,
+        },
+        user: user ? {
+          _id: user._id,
+          name: user.name,
+          image: user.image,
+        } : null,
+      };
+    }).filter(change => change !== null);
+    
+    // Calculate next cursor (oldest changedAt in this page, or null if no more)
+    const nextCursor = pageHistory.length === limit && pageHistory.length > 0
+      ? pageHistory[pageHistory.length - 1].changedAt
+      : null;
+    
+    return {
+      changes: changesWithTasks,
+      nextCursor,
+      hasMore: nextCursor !== null,
+    };
+  },
+});
+
+export const getChangesOverTime = query({
+  args: {
+    userIds: v.optional(v.array(v.id("users"))),
+    days: v.optional(v.number()), // Number of days to look back (default 5)
+  },
+  handler: async (ctx, args) => {
+    const days = args.days ?? 5;
+    const startTime = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const endTime = Date.now();
+    
+    // Get all tasks (filtered by user if needed)
+    let tasks = await ctx.db.query("tasks").collect();
+    
+    if (args.userIds && args.userIds.length > 0) {
+      tasks = tasks.filter(task => task.userId && args.userIds!.includes(task.userId));
+    }
+    
+    // Get all history entries for these tasks within the time range
+    const allHistory: any[] = [];
+    for (const task of tasks) {
+      const history = await ctx.db
+        .query("taskHistory")
+        .withIndex("by_task", (q) => q.eq("taskId", task._id))
+        .collect();
+      const filteredHistory = history.filter(entry => 
+        entry.changedAt >= startTime && entry.changedAt <= endTime
+      );
+      allHistory.push(...filteredHistory.map(entry => ({
+        ...entry,
+        userId: task.userId,
+      })));
+    }
+    
+    // Group by day and user
+    const dailyData: Record<string, Record<string, number>> = {};
+    const dayMs = 24 * 60 * 60 * 1000;
+    
+    // Initialize all days in the range (last 5 days)
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const dayKey = dayStart.toString();
+      dailyData[dayKey] = {};
+    }
+    
+    // Count changes per day per user
+    for (const entry of allHistory) {
+      if (!entry.userId) continue;
+      // Get start of day (midnight) for this entry
+      const entryDate = new Date(entry.changedAt);
+      const dayStart = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate()).getTime();
+      const dayKey = dayStart.toString();
+      
+      if (!dailyData[dayKey]) {
+        dailyData[dayKey] = {};
+      }
+      dailyData[dayKey][entry.userId] = (dailyData[dayKey][entry.userId] || 0) + 1;
+    }
+    
+    // Convert to array format, including all days in range
+    const result = Object.entries(dailyData).map(([time, userCounts]) => ({
+      time: parseInt(time),
+      ...userCounts,
+    }));
+    
+    return result.sort((a, b) => a.time - b.time);
+  },
+});
+
 export const completedCount = query({
   args: {},
   handler: async (ctx) => {
@@ -515,6 +705,60 @@ export const updateAllTasksToNaruto = mutation({
     }
     
     return { updated, total: allTasks.length };
+  },
+});
+
+// Backfill task history
+export const backfillTaskHistory = mutation({
+  handler: async (ctx) => {
+    const allTasks = await ctx.db.query("tasks").collect();
+    const now = Date.now();
+    const currentYear = new Date().getFullYear();
+    const yearStart = new Date(currentYear, 0, 1).getTime(); // January 1st of current year
+    
+    let tasksBackfilled = 0;
+    let totalHistoryItems = 0;
+    
+    for (let i = 0; i < allTasks.length; i++) {
+      // Skip every 4th task (index 3, 7, 11, etc.)
+      if (i % 4 === 3) {
+        continue;
+      }
+      
+      const task = allTasks[i];
+      
+      // Generate random number of history items (5-50)
+      const historyCount = Math.floor(Math.random() * 46) + 5; // 5 to 50 inclusive
+      
+      // Generate history items
+      for (let j = 0; j < historyCount; j++) {
+        // Random change type: "completion" or "importance"
+        const changeType = Math.random() < 0.5 ? "completion" : "importance";
+        
+        // Random value: true or false
+        const changedTo = Math.random() < 0.5;
+        
+        // Random datetime in this year up to today
+        const randomTimestamp = Math.floor(Math.random() * (now - yearStart + 1)) + yearStart;
+        
+        await ctx.db.insert("taskHistory", {
+          taskId: task._id,
+          changeType,
+          changedTo,
+          changedAt: randomTimestamp,
+        });
+        
+        totalHistoryItems++;
+      }
+      
+      tasksBackfilled++;
+    }
+    
+    return {
+      tasksBackfilled,
+      totalHistoryItems,
+      totalTasks: allTasks.length,
+    };
   },
 });
 
@@ -951,6 +1195,17 @@ export const backfillRandomDurations = mutation({
 });
 
 // Update user image
+export const updateUserColor = mutation({
+  args: { 
+    userId: v.id("users"),
+    color: v.string()
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.userId, { color: args.color });
+    return await ctx.db.get(args.userId);
+  },
+});
+
 export const updateUserImage = mutation({
   args: {
     userId: v.id("users"),
