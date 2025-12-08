@@ -722,7 +722,7 @@ function App() {
               {Array.from({ length: PAGE_SIZE }).map((_, i) => (
                 <div
                   key={i}
-                  className="flex flex-col rounded-2xl p-5 bg-neutral-800 animate-pulse min-h-[320px]"
+                  className="flex flex-col rounded-2xl p-5 bg-neutral-800 animate-pulse min-h-[305px]"
                 >
                   <div className="h-6 bg-neutral-700 rounded-lg w-3/4 mb-3"></div>
                   <div className="space-y-2 mb-4 flex-1">
@@ -731,23 +731,27 @@ function App() {
                     <div className="h-4 bg-neutral-700 rounded w-full"></div>
                     <div className="h-4 bg-neutral-700 rounded w-2/3"></div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 mb-4 py-3 border-y border-neutral-700">
-                    <div>
-                      <div className="h-3 bg-neutral-700 rounded w-12 mb-1"></div>
-                      <div className="h-4 bg-neutral-700 rounded w-16"></div>
-                    </div>
-                    <div className="text-center">
+                  <div className="space-y-3 mb-4 py-3">
+                    {/* Primary card - full width */}
+                    <div className="bg-neutral-700/30 rounded-lg p-3 border border-neutral-700/50 text-center">
                       <div className="h-3 bg-neutral-700 rounded w-12 mb-1 mx-auto"></div>
-                      <div className="h-4 bg-neutral-700 rounded w-14 mx-auto"></div>
+                      <div className="h-4 bg-neutral-700 rounded w-16 mx-auto"></div>
                     </div>
-                    <div className="text-right">
-                      <div className="h-3 bg-neutral-700 rounded w-12 mb-1 ml-auto"></div>
-                      <div className="h-4 bg-neutral-700 rounded w-10 ml-auto"></div>
+                    {/* Secondary cards - 3 in a row */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-neutral-700/30 rounded-lg p-3 border border-neutral-700/50 text-center">
+                        <div className="h-3 bg-neutral-700 rounded w-12 mb-1 mx-auto"></div>
+                        <div className="h-4 bg-neutral-700 rounded w-14 mx-auto"></div>
+                      </div>
+                      <div className="bg-neutral-700/30 rounded-lg p-3 border border-neutral-700/50 text-center">
+                        <div className="h-3 bg-neutral-700 rounded w-12 mb-1 mx-auto"></div>
+                        <div className="h-4 bg-neutral-700 rounded w-10 mx-auto"></div>
+                      </div>
+                      <div className="bg-neutral-700/30 rounded-lg p-3 border border-neutral-700/50 text-center">
+                        <div className="h-3 bg-neutral-700 rounded w-12 mb-1 mx-auto"></div>
+                        <div className="h-4 bg-neutral-700 rounded w-10 mx-auto"></div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-auto">
-                    <div className="h-12 bg-neutral-700 rounded"></div>
-                    <div className="h-12 bg-neutral-700 rounded"></div>
                   </div>
                 </div>
               ))}
@@ -878,6 +882,10 @@ function App() {
                             <div className="text-xs text-neutral-500">Updated</div>
                             <div className="text-sm font-medium text-white">{formatRelativeTime(task.updatedAt)}</div>
                           </div>
+                          <div className="text-center">
+                            <div className="text-xs text-neutral-500">Changes</div>
+                            <div className="text-sm font-medium text-white">{task.historyCount}</div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -968,22 +976,45 @@ function App() {
                     {task.description || "No description"}
                   </p>
                   
-                  {viewMode === 'extended' && (
-                    <div className="grid grid-cols-3 gap-3 py-2 border-t border-neutral-700">
-                      <div>
-                        <div className="text-xs mb-1 text-neutral-500">Created</div>
-                        <div className="text-sm font-medium text-white">{formatRelativeTime(task.createdAt)}</div>
+                  {viewMode === 'extended' && (() => {
+                    // Determine primary info based on sort (same logic as compact view)
+                    const primaryInfo = 
+                      sort === 'newest' || sort === 'oldest' ? 'created' :
+                      sort === 'quickest' || sort === 'longest' ? 'duration' :
+                      sort === 'frequent' || sort === 'unfrequent' ? 'changes' :
+                      'updated';
+                    
+                    // Create all info items
+                    const allInfo = [
+                      { key: 'created', label: 'Created', value: formatRelativeTime(task.createdAt) },
+                      { key: 'updated', label: 'Updated', value: formatRelativeTime(task.updatedAt) },
+                      { key: 'duration', label: 'Duration', value: formatDuration(task.duration) },
+                      { key: 'changes', label: 'Changes', value: task.historyCount.toString() }
+                    ];
+                    
+                    // Separate primary and secondary info
+                    const primaryItem = allInfo.find(item => item.key === primaryInfo)!;
+                    const secondaryItems = allInfo.filter(item => item.key !== primaryInfo);
+                    
+                    return (
+                      <div className="space-y-3 py-2">
+                        {/* Primary card - full width */}
+                        <div className="bg-neutral-700/30 rounded-lg p-3 border border-neutral-700/50 text-center">
+                          <div className="text-xs mb-1 text-neutral-500">{primaryItem.label}</div>
+                          <div className="text-sm font-medium text-white">{primaryItem.value}</div>
+                        </div>
+                        {/* Secondary cards - 3 in a row */}
+                        <div className="grid grid-cols-3 gap-3">
+                          {secondaryItems.map((item) => (
+                            <div key={item.key} className="bg-neutral-700/30 rounded-lg p-3 border border-neutral-700/50 text-center">
+                              <div className="text-xs mb-1 text-neutral-500">{item.label}</div>
+                              <div className="text-sm font-medium text-white">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="text-center">
-                        <div className="text-xs mb-1 text-neutral-500">Updated</div>
-                        <div className="text-sm font-medium text-white">{formatRelativeTime(task.updatedAt)}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs mb-1 text-neutral-500">Duration</div>
-                        <div className="text-sm font-medium text-white">{formatDuration(task.duration)}</div>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   
                   {viewMode === 'compact' && (
                     <div className="flex items-center justify-between mt-auto pt-3 border-t border-neutral-700">
