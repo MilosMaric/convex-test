@@ -893,7 +893,7 @@ function App() {
                     task.isImportant ? 'ring-[1.5px] ring-amber-500 ring-inset' : task.isCompleted ? 'ring-[1.5px] ring-green-500 ring-inset' : ''
                   } ${isToggling ? 'opacity-70 animate-pulse' : ''} hover:scale-[1.05] hover:z-10`}
                 >
-                  <div className="p-5 flex flex-col flex-1">
+                  <div className={`${viewMode === 'extended' ? 'px-5 pt-5 pb-3' : 'p-5'} flex flex-col flex-1`}>
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {/* User */}
@@ -969,7 +969,7 @@ function App() {
                   </p>
                   
                   {viewMode === 'extended' && (
-                    <div className="grid grid-cols-3 gap-3 mb-4 py-3 border-y border-neutral-700">
+                    <div className="grid grid-cols-3 gap-3 py-2 border-t border-neutral-700">
                       <div>
                         <div className="text-xs mb-1 text-neutral-500">Created</div>
                         <div className="text-sm font-medium text-white">{formatRelativeTime(task.createdAt)}</div>
