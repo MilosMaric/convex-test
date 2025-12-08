@@ -22,5 +22,6 @@ export default defineSchema({
     changeType: v.optional(v.string()), // "completion" or "importance"
     changedTo: v.boolean(), // true = completed/important, false = incomplete/not-important
     changedAt: v.number(),
-  }).index("by_task", ["taskId"]),
+  }).index("by_task", ["taskId"])
+    .index("by_changed_at", ["changedAt"]),
 });

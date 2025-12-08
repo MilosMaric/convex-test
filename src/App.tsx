@@ -310,86 +310,53 @@ function App() {
   // Fetch all users
   const users = useQuery(api.tasks.getAllUsers);
   
-  // Fetch latest changes (paginated)
-  const latestChangesPage = useQuery(api.tasks.getLatestChanges, {
-    limit: 15,
-    cursor: latestChangesCursor ?? undefined,
-    userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any : undefined,
-    showCompleted: latestChangesShowCompleted || undefined,
-    showIncomplete: latestChangesShowIncomplete || undefined,
-    showImportant: latestChangesShowImportant || undefined,
-    showNotImportant: latestChangesShowNotImportant || undefined,
-  });
+  // Fetch latest changes (paginated) - DISABLED FOR PERFORMANCE
+  // const latestChangesPage = useQuery(api.tasks.getLatestChanges, {
+  //   limit: 15,
+  //   cursor: latestChangesCursor ?? undefined,
+  //   userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any : undefined,
+  //   showCompleted: latestChangesShowCompleted || undefined,
+  //   showIncomplete: latestChangesShowIncomplete || undefined,
+  //   showImportant: latestChangesShowImportant || undefined,
+  //   showNotImportant: latestChangesShowNotImportant || undefined,
+  // });
+  const latestChangesPage = undefined;
   
-  // Fetch changes over time for chart
-  const changesOverTime = useQuery(api.tasks.getChangesOverTime, {
-    userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any : undefined,
-    days: periodToDays(activityPeriod),
-  });
+  // Fetch changes over time for chart - DISABLED FOR PERFORMANCE
+  // const changesOverTime = useQuery(api.tasks.getChangesOverTime, {
+  //   userIds: selectedUsers.size > 0 ? Array.from(selectedUsers) as any : undefined,
+  //   days: periodToDays(activityPeriod),
+  // });
+  const changesOverTime: any[] | undefined = undefined;
   
+  // DISABLED FOR PERFORMANCE - Related effects and values
   // Reset accumulated changes when selectedUsers or filters change
-  useEffect(() => {
-    setAccumulatedChanges([]);
-    setLatestChangesCursor(null);
-    setIsLoadingMore(false);
-    lastProcessedPageRef.current = null;
-  }, [selectedUsers, latestChangesShowCompleted, latestChangesShowIncomplete, latestChangesShowImportant, latestChangesShowNotImportant]);
+  // useEffect(() => {
+  //   setAccumulatedChanges([]);
+  //   setLatestChangesCursor(null);
+  //   setIsLoadingMore(false);
+  //   lastProcessedPageRef.current = null;
+  // }, [selectedUsers, latestChangesShowCompleted, latestChangesShowIncomplete, latestChangesShowImportant, latestChangesShowNotImportant]);
   
   // Track the last processed page to avoid duplicate processing
   const lastProcessedPageRef = useRef<string | null>(null);
   
-  // Accumulate changes when new page loads
-  useEffect(() => {
-    if (latestChangesPage) {
-      // Create a unique key for this page based on cursor and changes
-      const pageKey = `${latestChangesCursor ?? 'initial'}-${latestChangesPage.changes.length}`;
-      
-      // Only process if this is a new page
-      if (pageKey !== lastProcessedPageRef.current) {
-        setAccumulatedChanges(prev => {
-          // If cursor is null, this is the first page, replace all
-          if (latestChangesCursor === null) {
-            lastProcessedPageRef.current = pageKey;
-            return latestChangesPage.changes || [];
-          }
-          // Otherwise, append new changes (preserve existing during loading)
-          const existingIds = new Set(prev.map(c => c._id));
-          const newChanges = (latestChangesPage.changes || []).filter(c => !existingIds.has(c._id));
-          lastProcessedPageRef.current = pageKey;
-          return [...prev, ...newChanges];
-        });
-      }
-    }
-    // Don't clear accumulated changes when latestChangesPage is undefined (during loading)
-  }, [latestChangesPage, latestChangesCursor]);
+  // Accumulate changes when new page loads - DISABLED
+  // useEffect(() => { ... }, [latestChangesPage, latestChangesCursor]);
   
-  // Reset last processed page when selectedUsers changes
-  useEffect(() => {
-    lastProcessedPageRef.current = null;
-  }, [selectedUsers]);
+  // Reset last processed page when selectedUsers changes - DISABLED
+  // useEffect(() => { lastProcessedPageRef.current = null; }, [selectedUsers]);
   
   // Changes are already filtered on the server, so use accumulatedChanges directly
-  const latestChanges = accumulatedChanges;
-  const hasMoreChanges = latestChangesPage?.hasMore ?? false;
+  const latestChanges: any[] = [];
+  const hasMoreChanges = false;
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   
-  // Track when new page data arrives to clear loading state
-  useEffect(() => {
-    if (latestChangesPage && isLoadingMore) {
-      // Check if this is a new page (not the initial load)
-      if (latestChangesCursor !== null) {
-        setIsLoadingMore(false);
-      }
-    }
-  }, [latestChangesPage, latestChangesCursor, isLoadingMore]);
+  // Track when new page data arrives to clear loading state - DISABLED
+  // useEffect(() => { ... }, [latestChangesPage, latestChangesCursor, isLoadingMore]);
   
-  // Load more latest changes button handler
-  const loadMoreLatestChanges = useCallback(() => {
-    if (latestChangesPage?.hasMore && latestChangesPage?.nextCursor !== null && latestChangesPage?.nextCursor !== undefined) {
-      setIsLoadingMore(true);
-      setLatestChangesCursor(latestChangesPage.nextCursor);
-    }
-  }, [latestChangesPage]);
+  // Load more latest changes button handler - DISABLED
+  const loadMoreLatestChanges = useCallback(() => {}, []);
   
   // Debounce search query (400ms delay)
   useEffect(() => {
@@ -1413,97 +1380,7 @@ function App() {
                   </Card>
                 )}
                 
-                {/* Chart and Latest Changes Cards Skeleton */}
-                <div className="flex gap-4 mt-6">
-                  {/* Activity Chart Card Skeleton */}
-                  <div className="flex-1">
-                    <Card className="bg-neutral-800 border-neutral-700">
-                      <CardContent className="pt-2 pb-3 px-3">
-                        <h3 className="text-lg font-semibold text-white mb-2 text-center">Activity</h3>
-                        <div className="h-[420px] relative">
-                          {/* Chart skeleton */}
-                          <div className="absolute bottom-0 left-0 right-0 top-0 flex flex-col">
-                            {/* Y-axis skeleton */}
-                            <div className="flex-1 flex items-end justify-start pr-2">
-                              <div className="space-y-8">
-                                {[...Array(5)].map((_, i) => (
-                                  <div key={i} className="h-3 w-8 bg-neutral-700/50 rounded animate-pulse"></div>
-                                ))}
-                              </div>
-                            </div>
-                            {/* X-axis skeleton */}
-                            <div className="h-16 flex items-end justify-around px-4 pb-2">
-                              {[...Array(5)].map((_, i) => (
-                                <div key={i} className="h-3 w-10 bg-neutral-700/50 rounded animate-pulse"></div>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Chart lines skeleton */}
-                          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 400" preserveAspectRatio="none">
-                            <defs>
-                              <linearGradient id="skeletonGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                                <stop offset="0%" stopColor="#404040" stopOpacity="0.3" />
-                                <stop offset="100%" stopColor="#404040" stopOpacity="0.1" />
-                              </linearGradient>
-                            </defs>
-                            {[...Array(3)].map((_, lineIndex) => {
-                              const points = Array.from({ length: 5 }, (_, i) => {
-                                const x = 50 + (i * 70);
-                                const y = 350 - (Math.random() * 200 + 50);
-                                return `${x},${y}`;
-                              }).join(' ');
-                              return (
-                                <polyline
-                                  key={lineIndex}
-                                  points={points}
-                                  fill="none"
-                                  stroke="#404040"
-                                  strokeWidth="2"
-                                  strokeDasharray="5,5"
-                                  opacity="0.5"
-                                  className="animate-pulse"
-                                />
-                              );
-                            })}
-                          </svg>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                  
-                  {/* Latest Changes Card Skeleton */}
-                  <div className="w-1/3 flex-shrink-0">
-                    <Card className="bg-neutral-800 border-neutral-700">
-                      <CardContent className="pt-2 pb-3 px-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-white">Latest Changes</h3>
-                          <div className="flex items-center gap-1.5">
-                            {[...Array(4)].map((_, i) => (
-                              <div key={i} className="w-7 h-7 rounded-full bg-neutral-700/50 animate-pulse"></div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="space-y-1.5 h-[420px] overflow-y-auto scrollbar-thumb-only">
-                          {[...Array(6)].map((_, index) => (
-                            <div
-                              key={index}
-                              className="flex items-center gap-3 py-1.5 px-2 bg-neutral-700/30 rounded-lg"
-                            >
-                              <div className="w-8 h-8 rounded-full bg-neutral-700/50 animate-pulse flex-shrink-0"></div>
-                              <div className="flex-1 min-w-0">
-                                <div className="h-4 w-full bg-neutral-700/50 rounded animate-pulse mb-2"></div>
-                                <div className="flex items-center gap-2">
-                                  <div className="h-3 w-20 bg-neutral-700/50 rounded animate-pulse"></div>
-                                  <div className="h-3 w-24 bg-neutral-700/50 rounded animate-pulse"></div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
+                {/* Chart and Latest Changes Cards Skeleton - DISABLED FOR PERFORMANCE */}
               </>
             ) : filteredUserStats.length === 0 ? (
               <div className="flex justify-center items-center py-20">
@@ -1779,429 +1656,7 @@ function App() {
               </Card>
             )}
             
-            {/* Chart and Latest Changes Cards */}
-            <div className="flex gap-4 mt-6">
-              {/* Activity Chart Card */}
-              <div className="flex-1">
-                <Card className="bg-neutral-800 border-neutral-700">
-                  <CardContent className="pt-2 pb-3 px-3">
-                    <div className="flex items-center justify-between mb-2 relative">
-                      <h3 className="text-lg font-semibold text-white">Activity</h3>
-                      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1 bg-neutral-700/50 rounded-lg p-0.5">
-                        <button
-                          onClick={() => setActivityMode('delta')}
-                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                            activityMode === 'delta'
-                              ? 'bg-neutral-600 text-white'
-                              : 'text-neutral-400 hover:text-neutral-300'
-                          }`}
-                          title="Delta (daily changes)"
-                        >
-                          Δ Delta
-                        </button>
-                        <button
-                          onClick={() => setActivityMode('total')}
-                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                            activityMode === 'total'
-                              ? 'bg-neutral-600 text-white'
-                              : 'text-neutral-400 hover:text-neutral-300'
-                          }`}
-                          title="Total (cumulative)"
-                        >
-                          Σ Total
-                        </button>
-                      </div>
-                      <select
-                        value={activityPeriod}
-                        onChange={(e) => setActivityPeriod(e.target.value as any)}
-                        className="bg-neutral-700/50 border border-neutral-600 rounded-lg px-3 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-transparent"
-                      >
-                        <option value="5 days">5 days</option>
-                        <option value="10 days">10 days</option>
-                        <option value="15 days">15 days</option>
-                        <option value="1 month">1 month</option>
-                        <option value="2 months">2 months</option>
-                        <option value="3 months">3 months</option>
-                        <option value="6 months">6 months</option>
-                        <option value="1 year">1 year</option>
-                      </select>
-                    </div>
-                    {changesOverTime === undefined ? (
-                      <div className="h-[420px] relative">
-                        {/* Chart skeleton */}
-                        <div className="absolute bottom-0 left-0 right-0 top-0 flex flex-col">
-                          {/* Y-axis skeleton */}
-                          <div className="flex-1 flex items-end justify-start pr-2">
-                            <div className="space-y-8">
-                              {[...Array(5)].map((_, i) => (
-                                <div key={i} className="h-3 w-8 bg-neutral-700/50 rounded animate-pulse"></div>
-                              ))}
-                            </div>
-                          </div>
-                          {/* X-axis skeleton */}
-                          <div className="h-16 flex items-end justify-around px-4 pb-2">
-                            {[...Array(5)].map((_, i) => (
-                              <div key={i} className="h-3 w-10 bg-neutral-700/50 rounded animate-pulse"></div>
-                            ))}
-                          </div>
-                        </div>
-                        {/* Chart lines skeleton */}
-                        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 400" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="skeletonGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                              <stop offset="0%" stopColor="#404040" stopOpacity="0.3" />
-                              <stop offset="100%" stopColor="#404040" stopOpacity="0.1" />
-                            </linearGradient>
-                          </defs>
-                          {[...Array(selectedUsers.size || 1)].map((_, lineIndex) => {
-                            const points = Array.from({ length: 5 }, (_, i) => {
-                              const x = 50 + (i * 70);
-                              const y = 350 - (Math.random() * 200 + 50);
-                              return `${x},${y}`;
-                            }).join(' ');
-                            return (
-                              <polyline
-                                key={lineIndex}
-                                points={points}
-                                fill="none"
-                                stroke="#404040"
-                                strokeWidth="2"
-                                strokeDasharray="5,5"
-                                opacity="0.5"
-                                className="animate-pulse"
-                              />
-                            );
-                          })}
-                        </svg>
-                      </div>
-                    ) : changesOverTime.length === 0 ? (
-                      <div className="h-[420px] flex items-center justify-center">
-                        <div className="text-neutral-500 text-sm">No data available</div>
-                      </div>
-                    ) : (() => {
-                      // Aggregate data into intervals
-                      const days = periodToDays(activityPeriod);
-                      const intervalCount = calculateIntervalCount(days);
-                      const now = Date.now();
-                      const startTime = now - (days * 24 * 60 * 60 * 1000);
-                      const intervalDuration = (now - startTime) / intervalCount;
-                      
-                      // Create intervals
-                      const intervals: Array<{ start: number; end: number; label: string; timestamp: number }> = [];
-                      for (let i = 0; i < intervalCount; i++) {
-                        const intervalStart = startTime + (i * intervalDuration);
-                        const intervalEnd = i === intervalCount - 1 ? now : startTime + ((i + 1) * intervalDuration);
-                        const intervalDate = new Date(intervalStart);
-                        const day = String(intervalDate.getDate()).padStart(2, '0');
-                        const month = String(intervalDate.getMonth() + 1).padStart(2, '0');
-                        intervals.push({
-                          start: intervalStart,
-                          end: intervalEnd,
-                          label: `${day}.${month}`,
-                          timestamp: intervalStart,
-                        });
-                      }
-                      
-                      // Aggregate data into intervals
-                      const usersToInclude = users && (selectedUsers.size > 0 
-                        ? users.filter(u => selectedUsers.has(u._id))
-                        : users) || [];
-                      
-                      let chartData = intervals.map(interval => {
-                        const formatted: any = {
-                          time: interval.label,
-                          timestamp: interval.timestamp,
-                        };
-                        
-                        // Sum all data points within this interval
-                        usersToInclude.forEach(user => {
-                          let sum = 0;
-                          changesOverTime.forEach((item: any) => {
-                            if (item.time >= interval.start && item.time < interval.end) {
-                              sum += ((item as any)[user._id] as number) || 0;
-                            }
-                          });
-                          formatted[user.name] = sum;
-                        });
-                        
-                        return formatted;
-                      });
-                      
-                      // Calculate cumulative totals if mode is "total"
-                      if (activityMode === 'total') {
-                        const cumulativeTotals: Record<string, number> = {};
-                        usersToInclude.forEach(user => {
-                          cumulativeTotals[user.name] = 0;
-                        });
-                        
-                        chartData = chartData.map((item: any) => {
-                          const newItem = { ...item };
-                          usersToInclude.forEach(user => {
-                            const intervalValue = item[user.name] || 0;
-                            cumulativeTotals[user.name] += intervalValue;
-                            newItem[user.name] = cumulativeTotals[user.name];
-                          });
-                          return newItem;
-                        });
-                      }
-                      
-                      // Get user colors
-                      const userColors: Record<string, string> = {};
-                      if (users) {
-                        const usersToInclude = selectedUsers.size > 0 
-                          ? users.filter(u => selectedUsers.has(u._id))
-                          : users;
-                        usersToInclude.forEach(user => {
-                          if (user.color) {
-                            userColors[user.name] = user.color;
-                          }
-                        });
-                      }
-                      
-                      // Default colors if user colors not set
-                      const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
-                      let colorIndex = 0;
-                      
-                      return (
-                        <>
-                          <div className="h-[420px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#404040" />
-                                <XAxis 
-                                  dataKey="time" 
-                                  stroke="#9ca3af"
-                                  style={{ fontSize: '12px' }}
-                                  interval={0}
-                                  angle={-45}
-                                  textAnchor="end"
-                                  height={80}
-                                />
-                                <YAxis 
-                                  stroke="#9ca3af"
-                                  style={{ fontSize: '12px' }}
-                                  allowDecimals={false}
-                                />
-                                <Tooltip 
-                                  contentStyle={{ 
-                                    backgroundColor: '#262626', 
-                                    border: '1px solid #404040',
-                                    borderRadius: '6px',
-                                    color: '#fff'
-                                  }}
-                                />
-                                {users && (() => {
-                                  const usersToShow = selectedUsers.size > 0 
-                                    ? users.filter(u => selectedUsers.has(u._id))
-                                    : users;
-                                  
-                                  return usersToShow.map((user) => {
-                                    const color = userColors[user.name] || user.color || defaultColors[colorIndex++ % defaultColors.length];
-                                    return (
-                                      <Line
-                                        key={user._id}
-                                        type="monotone"
-                                        dataKey={user.name}
-                                        stroke={color}
-                                        strokeWidth={2}
-                                        dot={{ r: 3, fill: color }}
-                                        activeDot={{ r: 5 }}
-                                      />
-                                    );
-                                  });
-                                })()}
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                          {/* User avatars legend */}
-                          <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
-                            {(() => {
-                              const usersToShow = selectedUsers.size > 0 
-                                ? users?.filter(u => selectedUsers.has(u._id))
-                                : users;
-                              
-                              return usersToShow?.map((user) => {
-                                const userColor = user.color || '#9ca3af';
-                                return (
-                                  <div
-                                    key={user._id}
-                                    className="w-8 h-8 rounded-full overflow-hidden border-2 flex-shrink-0"
-                                    style={{ borderColor: userColor }}
-                                    title={user.name}
-                                  >
-                                    {user.image ? (
-                                      <img
-                                        src={`data:image/jpeg;base64,${user.image}`}
-                                        alt={user.name}
-                                        className="w-full h-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-xs">
-                                        {user.name.charAt(0)}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              });
-                            })()}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-              </div>
-              
-              {/* Latest Changes Card */}
-              <div className="w-1/3 flex-shrink-0 h-[470px]">
-              <Card className="bg-neutral-800 border-neutral-700">
-                <CardContent className="pt-2 pb-3 px-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-lg font-semibold text-white">Latest Changes</h3>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setLatestChangesShowCompleted(!latestChangesShowCompleted)}
-                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
-                          latestChangesShowCompleted 
-                            ? "bg-green-600 text-white" 
-                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
-                        }`}
-                        title="Completed"
-                      >
-                        ✓
-                      </button>
-                      <button
-                        onClick={() => setLatestChangesShowIncomplete(!latestChangesShowIncomplete)}
-                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
-                          latestChangesShowIncomplete 
-                            ? "bg-neutral-500 text-white" 
-                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
-                        }`}
-                        title="Incomplete"
-                      >
-                        ○
-                      </button>
-                      <button
-                        onClick={() => setLatestChangesShowImportant(!latestChangesShowImportant)}
-                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
-                          latestChangesShowImportant 
-                            ? "bg-amber-500 text-white" 
-                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
-                        }`}
-                        title="Important"
-                      >
-                        ★
-                      </button>
-                      <button
-                        onClick={() => setLatestChangesShowNotImportant(!latestChangesShowNotImportant)}
-                        className={`w-7 h-7 rounded-full text-xs font-medium transition-colors flex items-center justify-center ${
-                          latestChangesShowNotImportant 
-                            ? "bg-neutral-500 text-white" 
-                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600"
-                        }`}
-                        title="Not Important"
-                      >
-                        ☆
-                      </button>
-                    </div>
-                  </div>
-                  {latestChangesPage === undefined && accumulatedChanges.length === 0 ? (
-                    <div className="space-y-1.5 h-[420px] overflow-y-auto scrollbar-thumb-only">
-                      {[...Array(6)].map((_, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center gap-3 py-1.5 px-2 bg-neutral-700/30 rounded-lg"
-                        >
-                          {selectedUsers.size !== 1 && (
-                            <div className="w-8 h-8 rounded-full bg-neutral-700/50 animate-pulse flex-shrink-0"></div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="h-4 w-full bg-neutral-700/50 rounded animate-pulse mb-2"></div>
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-20 bg-neutral-700/50 rounded animate-pulse"></div>
-                              <div className="h-3 w-24 bg-neutral-700/50 rounded animate-pulse"></div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : latestChanges.length === 0 ? (
-                    <div className="h-[420px] flex items-center justify-center">
-                      <div className="text-neutral-500 text-sm">No changes found</div>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 h-[470px] overflow-y-auto scrollbar-thumb-only">
-                      {latestChanges.map((change) => {
-                        if (!change) return null;
-                        const isImportanceChange = change.changeType === "importance";
-                        const showAvatar = selectedUsers.size !== 1;
-                        
-                        return (
-                          <div
-                            key={change._id}
-                            className="flex items-center gap-3 py-1.5 px-2 bg-neutral-700/30 rounded-lg"
-                          >
-                            {showAvatar && change.user && (
-                              <div className="w-8 h-8 rounded-full overflow-hidden border border-neutral-700/50 flex-shrink-0">
-                                {change.user.image ? (
-                                  <img
-                                    src={`data:image/jpeg;base64,${change.user.image}`}
-                                    alt={change.user.name}
-                                    className="w-full h-full object-cover"
-                                    title={change.user.name}
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-neutral-700/50 flex items-center justify-center text-neutral-400 text-xs">
-                                    {change.user.name.charAt(0)}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm text-white truncate" title={change.task.text}>
-                                {change.task.text}
-                              </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className={
-                                  isImportanceChange 
-                                    ? (change.changedTo ? "text-amber-400 text-xs" : "text-neutral-400 text-xs")
-                                    : (change.changedTo ? "text-green-400 text-xs" : "text-neutral-400 text-xs")
-                                }>
-                                  {isImportanceChange 
-                                    ? (change.changedTo ? "★ Important" : "☆ Not Important")
-                                    : (change.changedTo ? "✓ Completed" : "○ Incomplete")
-                                  }
-                                </span>
-                                <span className="text-neutral-500 text-xs">
-                                  {formatDateTime(change.changedAt)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {/* Load More Button */}
-                      <div className="py-2 flex justify-center">
-                        {isLoadingMore ? (
-                          <div className="text-neutral-500 text-xs">Loading more...</div>
-                        ) : hasMoreChanges ? (
-                          <Button
-                            onClick={loadMoreLatestChanges}
-                            variant="outline"
-                            className="bg-neutral-700/50 border-neutral-600 text-white hover:bg-neutral-600"
-                          >
-                            Load more
-                          </Button>
-                        ) : latestChanges.length > 0 ? (
-                          <div className="text-neutral-600 text-xs">All changes loaded</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-              </div>
-            </div>
+            {/* Chart and Latest Changes Cards - DISABLED FOR PERFORMANCE */}
             </>
             )}
           </div>
